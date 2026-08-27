@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Temporary files
+tmp/
+
+# Vim
+*.sw?
+*.sv?
+
+# macOS
+.DS_Store
