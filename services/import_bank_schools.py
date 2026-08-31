@@ -27,7 +27,7 @@ Behavior:
           (same loose matching), only if it doesn't already exist
 
 Usage:
-    python import_banks_schools.py
+    python -m services.import_banks_schools
 """
 
 import re
@@ -36,7 +36,7 @@ from pathlib import Path
 
 import openpyxl
 
-from services import common
+from services import db_utils, excel_utils
 from config import WRITTEN_STATUSES_PER_BANK_PATH
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
@@ -51,55 +51,37 @@ def validate_and_read_file(path: Path):
 
     On any format error, returns (bank_name_or_None, None, errors).
     """
-    errors = []
+    bank_name, error = excel_utils.validate_filename(
+        path, FILENAME_PATTERN, "bank_name",
+        "Status pour l_admissibilité de la classe PC-PC pour la banque Banque {bank_name} PC...xlsx",
+    )
 
-    normalized_filename = unicodedata.normalize("NFC", path.name)
-    match = FILENAME_PATTERN.match(normalized_filename)
-    if not match:
-        errors.append(
-            f"{path.name}: filename does not match the expected pattern "
-            f"'Statuts pour l_admissibilité de la classe PC-PC pour la banque "
-            f"Banque {{bank_name}} PC...xlsx'. (raw: {normalized_filename!r})"
-        )
-        return None, None, None, errors
+    if error:
+        return None, None, [error]
 
-    bank_name = match.group("bank_name").strip()
+    all_rows = excel_utils.read_xlsx_rows(path)
 
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb.worksheets[0]
-    all_rows = list(ws.iter_rows(values_only=True))
+    empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
+    if empty_file_error:
+        return bank_name, None, [empty_file_error]
 
-    if not all_rows:
-        errors.append(f"{path.name}: file is empty.")
-        return bank_name, None, None, errors
-
-    header_row = list(all_rows[0])
-    while header_row and header_row[-1] is None:
-        header_row.pop()
-    normalized_headers = [str(h).strip() if h is not None else None for h in header_row]
+    normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < 3 or normalized_headers[:3] != EXPECTED_FIRST_HEADERS:
-        errors.append(
-            f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
-            f"found {normalized_headers[:3]}."
-        )
-        return bank_name, None, None, errors
+        error = f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
+        f"found {normalized_headers[:3]}."
+        return bank_name, None, [error]
 
     school_names = [h for h in normalized_headers[3:] if h]
     if not school_names:
-        errors.append(f"{path.name}: no school columns found after 'Prénom'.")
-        return bank_name, None, None, errors
+        error = f"{path.name}: no school columns found after 'Prénom'."
+        return bank_name, None, [error]
 
-    n_schools = len(school_names)
-
-    if errors:
-        return bank_name, school_names, None, errors
-
-    return bank_name, school_names, errors
+    return bank_name, school_names, []
 
 
 def import_bank_schools() -> None:
-    files = common.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
+    files = excel_utils.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
 
     all_errors = []
     parsed = []  # list of (path, bank_name, school_names)
@@ -113,31 +95,34 @@ def import_bank_schools() -> None:
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
 
-    bank_cache = {}
-    school_cache = {}
-    banks_created = 0
-    schools_created = 0
-    schools_skipped = 0
+    try:
+        with conn:
+            bank_cache = {}
+            school_cache = {}
+            banks_created = 0
+            schools_created = 0
+            schools_skipped = 0
 
-    for path, bank_name, school_names in parsed:
-        bank_id, created = common.get_or_create_bank(conn, bank_name, bank_cache)
-        if created:
-            banks_created += 1
-            print(f"Created bank: {bank_name!r} (id={bank_id})")
+            for path, bank_name, school_names in parsed:
+                bank_id, created = db_utils.get_or_create_bank(conn, bank_name, bank_cache)
+                if created:
+                    banks_created += 1
+                    print(f"Created bank: {bank_name!r} (id={bank_id})")
 
-        school_ids = []
-        for school_name in school_names:
-            school_id, created = common.get_or_create_school(conn, school_name, bank_id, school_cache)
-            school_ids.append(school_id)
-            if created:
-                schools_created += 1
-                print(f"  Created school: {school_name!r} (id={school_id}, bank_id={bank_id})")
-            else:
-                schools_skipped += 1
+                school_ids = []
+                for school_name in school_names:
+                    school_id, created = db_utils.get_or_create_school(conn, school_name, bank_id, school_cache)
+                    school_ids.append(school_id)
+                    if created:
+                        schools_created += 1
+                        print(f"  Created school: {school_name!r} (id={school_id}, bank_id={bank_id})")
+                    else:
+                        schools_skipped += 1
 
-    conn.close()
+    finally:
+        conn.close()
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"

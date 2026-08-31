@@ -16,7 +16,7 @@ Can also be imported and called as:
 """
 
 import argparse
-from services import common
+from services import db_utils
 from config import DB_PATH, OUTPUT_PATH
 from pathlib import Path
 
@@ -354,13 +354,14 @@ def summarize_results(year, output_path=None):
     """
     output_path = Path(output_path) if output_path else OUTPUT_PATH
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
     try:
-        classroom_id = common.get_classroom_id_by_year(conn, year)
-        students = get_students(conn, classroom_id)
-        cs_ids = [s["classroom_student_id"] for s in students]
-        admissions_rows = get_admissions(conn, cs_ids)
-        exam_result_rows = get_exam_results(conn, cs_ids)
+        with conn:
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            students = get_students(conn, classroom_id)
+            cs_ids = [s["classroom_student_id"] for s in students]
+            admissions_rows = get_admissions(conn, cs_ids)
+            exam_result_rows = get_exam_results(conn, cs_ids)
     finally:
         conn.close()
 

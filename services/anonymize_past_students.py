@@ -16,7 +16,7 @@ Can also be imported and called as:
 """
 
 import argparse
-from services import common
+from services import db_utils
 import sqlite3
 from pathlib import Path
 
@@ -53,20 +53,20 @@ def anonymize_past_students(before: int) -> int | None:
 
     Returns the number of students anonymized.
     """
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
     try:
-        student_ids = _find_students_to_anonymize(conn, before)
-        if student_ids:
-            placeholders = ",".join("?" for _ in student_ids)
-            conn.execute(
-                f"UPDATE students SET first_name = NULL, last_name = NULL "
-                f"WHERE id IN ({placeholders})",
-                student_ids,
-            )
-            conn.commit()
-        count = len(student_ids)
-        print(f"Anonymized {count} student(s)")
-        return count
+        with conn:
+            student_ids = _find_students_to_anonymize(conn, before)
+            if student_ids:
+                placeholders = ",".join("?" for _ in student_ids)
+                conn.execute(
+                    f"UPDATE students SET first_name = NULL, last_name = NULL "
+                    f"WHERE id IN ({placeholders})",
+                    student_ids,
+                )
+            count = len(student_ids)
+            print(f"Anonymized {count} student(s)")
+            return count
     except sqlite3.Error as e:
         print(f"Warning: failed to anonymize students before {before}: {e}")
         return None

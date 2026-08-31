@@ -20,14 +20,14 @@ Behavior:
           combination
 
 Usage:
-    python import_classroom_students.py 2026
+    python -m services.import_classroom_students 2026
 """
 
 from pathlib import Path
 
 import argparse
 import openpyxl
-from services import common
+from services import db_utils
 from config import STUDENTS_PATH
 
 
@@ -99,7 +99,7 @@ def import_students(conn, classroom_id: int, rows: list) -> tuple:
     classroom_students_skipped = 0
 
     for last_name, first_name, repeating in rows:
-        student_id, student_was_created = common.get_or_create_student(
+        student_id, student_was_created = db_utils.get_or_create_student(
             conn, first_name, last_name
         )
         if student_was_created:
@@ -107,7 +107,7 @@ def import_students(conn, classroom_id: int, rows: list) -> tuple:
         else:
             students_skipped += 1
 
-        _, cs_was_created = common.get_or_create_classroom_student(
+        _, cs_was_created = db_utils.get_or_create_classroom_student(
             conn, classroom_id, student_id, repeating
         )
         if cs_was_created:
@@ -123,22 +123,24 @@ def import_students(conn, classroom_id: int, rows: list) -> tuple:
     )
 
 
-def import_classroom_students(year: str) -> None:
+def import_classroom_students(year: int) -> None:
     rows = load_and_validate(STUDENTS_PATH)
     print(f"Validated {STUDENTS_PATH}: year={year}, {len(rows)} student row(s).")
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
 
-    classroom_id = common.get_or_create_classroom(conn, year, BRANCH)
-    print(f"Classroom for year {year} ({BRANCH}): id={classroom_id}")
+    try:
+        with conn:
+            classroom_id, _created = db_utils.get_or_create_classroom(conn, year, BRANCH)
+            print(f"Classroom for year {year} ({BRANCH}): id={classroom_id}")
 
-    created, skipped, cs_created, cs_skipped = import_students(conn, classroom_id, rows)
-    print(f"Students: {created} created, {skipped} already existed (skipped).")
-    print(
-        f"Classroom students: {cs_created} created, {cs_skipped} already existed (skipped)."
-    )
-
-    conn.close()
+            created, skipped, cs_created, cs_skipped = import_students(conn, classroom_id, rows)
+            print(f"Students: {created} created, {skipped} already existed (skipped).")
+            print(
+                f"Classroom students: {cs_created} created, {cs_skipped} already existed (skipped)."
+            )
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

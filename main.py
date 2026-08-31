@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from services import common
+from services import excel_utils
 from config import STUDENTS_PATH, WRITTEN_STATUSES_PER_BANK_PATH, WRITTEN_EXAM_RESULTS_PATH, WRITTEN_ADMISSIONS_PER_SCHOOL_PATH, ORAL_ADMISSIONS_PER_SCHOOL_PATH
 import openpyxl
 from services.anonymize_past_students import anonymize_past_students
@@ -50,9 +50,9 @@ def validate_classroom_year(path: Path) -> int:
 
 
 def validate_written_inputs() -> None:
-  common.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
-  common.discover_files(WRITTEN_EXAM_RESULTS_PATH)
-  common.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
+    excel_utils.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
+    excel_utils.discover_files(WRITTEN_EXAM_RESULTS_PATH)
+    excel_utils.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
 
 
 def summarize_written_results(year: int) -> None:
@@ -64,7 +64,7 @@ def summarize_written_results(year: int) -> None:
 
 
 def validate_oral_inputs() -> None:
-  common.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
+    excel_utils.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
 
 
 def summarize_oral_results(year: int) -> None:

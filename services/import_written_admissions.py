@@ -44,7 +44,7 @@ Behavior:
           are skipped entirely (no admissions record created).
 
 Usage:
-    python import_written_admissions.py 2026
+    python -m services.import_written_admissions 2026
 """
 
 import argparse
@@ -54,8 +54,7 @@ from pathlib import Path
 
 import openpyxl
 
-from services import common
-from services import import_classroom_students
+from services import db_utils, excel_utils
 from config import WRITTEN_ADMISSIONS_PER_SCHOOL_PATH
 
 EXPECTED_STRICT_HEADERS = ["Numéro", "Nom", "Prénom", "Statut"]
@@ -75,30 +74,21 @@ def validate_and_read_file(path: Path):
     """
     errors = []
 
-    normalized_filename = unicodedata.normalize("NFC", path.name)
-    match = FILENAME_PATTERN.match(normalized_filename)
-    if not match:
-        errors.append(
-            f"{path.name}: filename does not match the expected pattern "
-            f"'Résultats de l_admissibilité pour le {{school_name}} de PC...xlsx'. "
-            f"(raw: {normalized_filename!r})"
-        )
-        return None, None, errors
+    school_name, error = excel_utils.validate_filename(
+        path, FILENAME_PATTERN, "school_name",
+        "Résultats de l_admissibilité pour le {{school_name}} de PC...xlsx",
+    )
 
-    school_name = match.group("school_name").strip()
+    if error:
+        return None, None, [error]
 
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb.worksheets[0]
-    all_rows = list(ws.iter_rows(values_only=True))
+    all_rows = excel_utils.read_xlsx_rows(path)
 
-    if not all_rows:
-        errors.append(f"{path.name}: file is empty.")
-        return school_name, None, errors
+    empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
+    if empty_file_error:
+        return school_name, None, [empty_file_error]
 
-    header_row = list(all_rows[0])
-    while header_row and header_row[-1] is None:
-        header_row.pop()
-    normalized_headers = [str(h).strip() if h is not None else None for h in header_row]
+    normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     expected_count = len(EXPECTED_STRICT_HEADERS) + len(EXPECTED_LOOSE_HEADERS)
     if len(normalized_headers) < expected_count:
@@ -119,7 +109,7 @@ def validate_and_read_file(path: Path):
     loose_end = loose_start + len(EXPECTED_LOOSE_HEADERS)
     loose_actual = normalized_headers[loose_start:loose_end]
     for expected, actual in zip(EXPECTED_LOOSE_HEADERS, loose_actual):
-        if common.normalize_name(actual or "") != common.normalize_name(expected):
+        if db_utils.normalize_name(actual or "") != db_utils.normalize_name(expected):
             errors.append(
                 f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
             )
@@ -136,11 +126,9 @@ def validate_and_read_file(path: Path):
 
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        if last_name is None or first_name is None:
-            errors.append(
-                f"{path.name} row {row_idx}: missing Nom or Prénom "
-                f"(Nom={last_name!r}, Prénom={first_name!r})."
-            )
+        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        if name_columns_error:
+            errors.append(name_columns_error)
             continue
 
         data_rows.append((
@@ -159,7 +147,7 @@ def validate_and_read_file(path: Path):
 
 
 def import_written_admissions(year: int) -> None:
-    files = common.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
+    files = excel_utils.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
 
     all_errors = []
     parsed = []  # list of (path, school_name, data_rows)
@@ -173,58 +161,61 @@ def import_written_admissions(year: int) -> None:
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
 
-    classroom_id = common.get_classroom_id_by_year(conn, year)
-    print(f"Using classroom for year {year} (id={classroom_id})")
+    try:
+        with conn:
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            print(f"Using classroom for year {year} (id={classroom_id})")
 
-    school_cache = {}
-    school_not_found_warnings = []
-    students_created = 0
-    students_skipped = 0
-    classroom_students_created = 0
-    classroom_students_skipped = 0
-    admissions_created = 0
-    admissions_updated = 0
-    rows_skipped_blank = 0
+            school_cache = {}
+            school_not_found_warnings = []
+            students_created = 0
+            students_skipped = 0
+            classroom_students_created = 0
+            classroom_students_skipped = 0
+            admissions_created = 0
+            admissions_updated = 0
+            rows_skipped_blank = 0
 
-    for path, school_name, data_rows in parsed:
-        school_id = common.find_school_by_name(conn, school_name, school_cache)
-        if school_id is None:
-            school_not_found_warnings.append(
-                f"{path.name}: no school found matching {school_name!r}. File skipped."
-            )
-            continue
+            for path, school_name, data_rows in parsed:
+                school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+                if school_id is None:
+                    school_not_found_warnings.append(
+                        f"{path.name}: no school found matching {school_name!r}. File skipped."
+                    )
+                    continue
 
-        for row_idx, last_name, first_name, status, written_points, written_average in data_rows:
-            if status is None and written_points is None and written_average is None:
-                rows_skipped_blank += 1
-                continue
+                for row_idx, last_name, first_name, status, written_points, written_average in data_rows:
+                    if status is None and written_points is None and written_average is None:
+                        rows_skipped_blank += 1
+                        continue
 
-            student_id, created = common.get_or_create_student(conn, first_name, last_name)
-            if created:
-                students_created += 1
-            else:
-                students_skipped += 1
+                    student_id, created = db_utils.get_or_create_student(conn, first_name, last_name)
+                    if created:
+                        students_created += 1
+                    else:
+                        students_skipped += 1
 
-            classroom_student_id, created = common.get_or_create_classroom_student(
-                conn, classroom_id, student_id
-            )
-            if created:
-                classroom_students_created += 1
-            else:
-                classroom_students_skipped += 1
+                    classroom_student_id, created = db_utils.get_or_create_classroom_student(
+                        conn, classroom_id, student_id
+                    )
+                    if created:
+                        classroom_students_created += 1
+                    else:
+                        classroom_students_skipped += 1
 
-            status_value = str(status).strip() if status is not None else None
-            _, created = common.upsert_admission_written_result(
-                conn, classroom_student_id, school_id, status_value, written_points, written_average
-            )
-            if created:
-                admissions_created += 1
-            else:
-                admissions_updated += 1
+                    status_value = str(status).strip() if status is not None else None
+                    _, created = db_utils.upsert_admission_written_result(
+                        conn, classroom_student_id, school_id, status_value, written_points, written_average
+                    )
+                    if created:
+                        admissions_created += 1
+                    else:
+                        admissions_updated += 1
 
-    conn.close()
+    finally:
+        conn.close()
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"

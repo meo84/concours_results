@@ -69,7 +69,7 @@ Behavior:
               record (classroom_student_id, exam_id, points)
 
 Usage:
-    python import_oral_exam_results_and_admissions.py
+    python -m services.import_oral_exam_results_and_admissions 2026
 """
 
 import argparse
@@ -79,8 +79,7 @@ from pathlib import Path
 
 import openpyxl
 
-from services import common
-from services import import_classroom_students
+from services import db_utils, excel_utils
 from config import ORAL_ADMISSIONS_PER_SCHOOL_PATH
 
 EXPECTED_HEADERS = ["Numéro", "Nom", "Prénom", "Statut", "Rang", "Total", "Moyenne", "Total oral", "total écrit"]
@@ -112,31 +111,22 @@ def validate_and_read_file(path: Path):
     error, returns (school_name_or_None, None, None, errors, False).
     A genuinely empty file returns (None, None, None, [], True).
     """
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb.worksheets[0]
-    all_rows = list(ws.iter_rows(values_only=True))
+    all_rows = excel_utils.read_xlsx_rows(path)
 
     if _is_effectively_empty(all_rows):
         return None, None, None, [], True
 
     errors = []
 
-    normalized_filename = unicodedata.normalize("NFC", path.name)
-    match = FILENAME_PATTERN.match(normalized_filename)
-    if not match:
-        errors.append(
-            f"{path.name}: filename does not match the expected pattern "
-            f"'Résultats de l_admission pour le {{school_name}} de PC...xlsx'. "
-            f"(raw: {normalized_filename!r})"
-        )
-        return None, None, None, errors, False
+    school_name, error = excel_utils.validate_filename(
+        path, FILENAME_PATTERN, "school_name",
+        "Résultats de l_admission pour le {{school_name}} de PC...xlsx",
+    )
 
-    school_name = match.group("school_name").strip()
+    if error:
+        return None, None, [error], False
 
-    header_row = list(all_rows[0])
-    while header_row and header_row[-1] is None:
-        header_row.pop()
-    normalized_headers = [str(h).strip() if h is not None else None for h in header_row]
+    normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < N_VALIDATED_COLUMNS:
         errors.append(
@@ -147,7 +137,7 @@ def validate_and_read_file(path: Path):
 
     actual_headers = normalized_headers[:N_VALIDATED_COLUMNS]
     for expected, actual in zip(EXPECTED_HEADERS, actual_headers):
-        if common.normalize_name(actual or "") != common.normalize_name(expected):
+        if db_utils.normalize_name(actual or "") != db_utils.normalize_name(expected):
             errors.append(
                 f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
             )
@@ -174,11 +164,9 @@ def validate_and_read_file(path: Path):
 
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        if last_name is None or first_name is None:
-            errors.append(
-                f"{path.name} row {row_idx}: missing Nom or Prénom "
-                f"(Nom={last_name!r}, Prénom={first_name!r})."
-            )
+        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        if name_columns_error:
+            errors.append(name_columns_error)
             continue
 
         extra_values = list(row[N_VALIDATED_COLUMNS:N_VALIDATED_COLUMNS + n_extra])
@@ -203,7 +191,7 @@ def validate_and_read_file(path: Path):
 
 
 def import_oral_exam_results_and_admissions(year: int) -> None:
-    files = common.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
+    files = excel_utils.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
 
     all_errors = []
     parsed = []  # list of (path, school_name, extra_headers, data_rows)
@@ -221,103 +209,106 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
 
-    classroom_id = common.get_classroom_id_by_year(conn, year)
-    print(f"Using classroom for year {year} (id={classroom_id})")
+    try:
+        with conn:
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            print(f"Using classroom for year {year} (id={classroom_id})")
 
-    school_cache = {}
-    exam_cache = {}
-    school_not_found_warnings = []
-    row_errors = []
-    admissions_updated = 0
-    exams_created = 0
-    exams_skipped = 0
-    results_created = 0
-    results_skipped = 0
+            school_cache = {}
+            exam_cache = {}
+            school_not_found_warnings = []
+            row_errors = []
+            admissions_updated = 0
+            exams_created = 0
+            exams_skipped = 0
+            results_created = 0
+            results_skipped = 0
 
-    for path, school_name, extra_headers, data_rows in parsed:
-        school_id = common.find_school_by_name(conn, school_name, school_cache)
-        if school_id is None:
-            school_not_found_warnings.append(
-                f"{path.name}: no school found matching {school_name!r}. File skipped."
-            )
-            continue
-
-        bank_id = common.get_school_bank_id(conn, school_id)
-
-        # Resolve classroom_student_id per row; rows that fail are excluded
-        # from both the admissions update and the exam results creation.
-        resolved_rows = []  # list of (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
-        for row_idx, last_name, first_name, status, rank, total, average, total_oral, extra_values in data_rows:
-            student_id = common.find_student_by_name(conn, first_name, last_name)
-            if student_id is None:
-                row_errors.append(
-                    f"{path.name} row {row_idx}: no student found for "
-                    f"{first_name!r} {last_name!r}. Row skipped."
-                )
-                continue
-
-            classroom_student_id = common.find_classroom_student(conn, classroom_id, student_id)
-            if classroom_student_id is None:
-                row_errors.append(
-                    f"{path.name} row {row_idx}: no classroom_student found for "
-                    f"{first_name!r} {last_name!r} in classroom {classroom_id}. Row skipped."
-                )
-                continue
-
-            resolved_rows.append(
-                (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
-            )
-
-            admission = common.find_admission(conn, classroom_student_id, school_id)
-            if admission is None:
-                row_errors.append(
-                    f"{path.name} row {row_idx}: no admissions record found for "
-                    f"{first_name!r} {last_name!r} at school_id={school_id}. "
-                    f"Admissions update skipped for this row."
-                )
-                continue
-
-            admission_id, written_points = admission
-            if total_oral is not None:
-                oral_points = total_oral
-            elif total is not None and written_points is not None:
-                oral_points = total - written_points
-            else:
-                oral_points = None
-
-            common.update_admission_oral_result(
-                conn, admission_id, status, rank, total, average, oral_points
-            )
-            admissions_updated += 1
-
-        # Per-exam-column processing.
-        for col_idx, exam_name in enumerate(extra_headers):
-            column_values = [r[7][col_idx] for r in resolved_rows]
-            if all(v is None for v in column_values):
-                continue  # column entirely blank across resolved rows -> skip
-
-            exam_id, created = common.get_or_create_exam(conn, exam_name, bank_id, FORMAT, exam_cache)
-            if created:
-                exams_created += 1
-                print(f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id}, format={FORMAT})")
-            else:
-                exams_skipped += 1
-
-            for row_idx, classroom_student_id, *_rest, extra_values in resolved_rows:
-                points = extra_values[col_idx]
-                if points is None:
+            for path, school_name, extra_headers, data_rows in parsed:
+                school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+                if school_id is None:
+                    school_not_found_warnings.append(
+                        f"{path.name}: no school found matching {school_name!r}. File skipped."
+                    )
                     continue
-                _, created = common.get_or_create_exam_result(
-                    conn, classroom_student_id, exam_id, points
-                )
-                if created:
-                    results_created += 1
-                else:
-                    results_skipped += 1
 
-    conn.close()
+                bank_id = db_utils.get_school_bank_id(conn, school_id)
+
+                # Resolve classroom_student_id per row; rows that fail are excluded
+                # from both the admissions update and the exam results creation.
+                resolved_rows = []  # list of (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
+                for row_idx, last_name, first_name, status, rank, total, average, total_oral, extra_values in data_rows:
+                    student_id = db_utils.find_student_by_name(conn, first_name, last_name)
+                    if student_id is None:
+                        row_errors.append(
+                            f"{path.name} row {row_idx}: no student found for "
+                            f"{first_name!r} {last_name!r}. Row skipped."
+                        )
+                        continue
+
+                    classroom_student_id = db_utils.find_classroom_student(conn, classroom_id, student_id)
+                    if classroom_student_id is None:
+                        row_errors.append(
+                            f"{path.name} row {row_idx}: no classroom_student found for "
+                            f"{first_name!r} {last_name!r} in classroom {classroom_id}. Row skipped."
+                        )
+                        continue
+
+                    resolved_rows.append(
+                        (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
+                    )
+
+                    admission = db_utils.find_admission(conn, classroom_student_id, school_id)
+                    if admission is None:
+                        row_errors.append(
+                            f"{path.name} row {row_idx}: no admissions record found for "
+                            f"{first_name!r} {last_name!r} at school_id={school_id}. "
+                            f"Admissions update skipped for this row."
+                        )
+                        continue
+
+                    admission_id, written_points = admission
+                    if total_oral is not None:
+                        oral_points = total_oral
+                    elif total is not None and written_points is not None:
+                        oral_points = total - written_points
+                    else:
+                        oral_points = None
+
+                    db_utils.update_admission_oral_result(
+                        conn, admission_id, status, rank, total, average, oral_points
+                    )
+                    admissions_updated += 1
+
+                # Per-exam-column processing.
+                for col_idx, exam_name in enumerate(extra_headers):
+                    column_values = [r[7][col_idx] for r in resolved_rows]
+                    if all(v is None for v in column_values):
+                        continue  # column entirely blank across resolved rows -> skip
+
+                    exam_id, created = db_utils.get_or_create_exam(conn, exam_name, bank_id, FORMAT, exam_cache)
+                    if created:
+                        exams_created += 1
+                        print(f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id}, format={FORMAT})")
+                    else:
+                        exams_skipped += 1
+
+                    for row_idx, classroom_student_id, *_rest, extra_values in resolved_rows:
+                        points = extra_values[col_idx]
+                        if points is None:
+                            continue
+                        _, created = db_utils.get_or_create_exam_result(
+                            conn, classroom_student_id, exam_id, points
+                        )
+                        if created:
+                            results_created += 1
+                        else:
+                            results_skipped += 1
+
+    finally:
+        conn.close()
 
     print(
         f"\nDone. {len(parsed)} file(s) processed, {skipped_empty} empty file(s) skipped.\n"
@@ -338,7 +329,6 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
 
 
 if __name__ == "__main__":
-    main()
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
 

@@ -16,8 +16,7 @@ Usage:
 
 import sqlite3
 from pathlib import Path
-
-DB_PATH = Path(__file__).parent / "concours_results.db"
+from config import DB_PATH
 
 TABLES = [
     "banks",
@@ -135,12 +134,15 @@ END;
 
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
-    conn.executescript(SCHEMA)
-    for table in TABLES:
-        conn.executescript(TRIGGER_TEMPLATE.format(table=table))
-    conn.commit()
-    conn.close()
+    try:
+        with conn:
+            conn.executescript(SCHEMA)
+            for table in TABLES:
+                conn.executescript(TRIGGER_TEMPLATE.format(table=table))
+    finally:
+        conn.close()
     print(f"Database ready at {DB_PATH}")
 
 

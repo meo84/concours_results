@@ -39,7 +39,7 @@ Behavior:
           Blank cells are skipped (no exam_results record created).
 
 Usage:
-    python import_written_exam_results.py 2026
+    python -m services.import_written_exam_results 2026
 """
 
 import argparse
@@ -49,9 +49,8 @@ from pathlib import Path
 
 import openpyxl
 
-from services import common
+from services import db_utils, excel_utils
 from config import WRITTEN_EXAM_RESULTS_PATH
-from services import import_classroom_students
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 FORMAT = "written"
@@ -71,30 +70,21 @@ def validate_and_read_file(path: Path):
     """
     errors = []
 
-    normalized_filename = unicodedata.normalize("NFC", path.name)
-    match = FILENAME_PATTERN.match(normalized_filename)
-    if not match:
-        errors.append(
-            f"{path.name}: filename does not match the expected pattern "
-            f"'Résultats de la classe PC-PC pour la Banque {{bank_name}} PC...xlsx'. "
-            f"(raw: {normalized_filename!r})"
-        )
-        return None, None, None, errors
+    bank_name, error = excel_utils.validate_filename(
+        path, FILENAME_PATTERN, "bank_name",
+        "Résultats de la classe PC-PC pour la Banque {{bank_name}} PC...xlsx",
+    )
 
-    bank_name = match.group("bank_name").strip()
+    if error:
+        return None, None, None, [error]
 
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb.worksheets[0]
-    all_rows = list(ws.iter_rows(values_only=True))
+    all_rows = excel_utils.read_xlsx_rows(path)
 
-    if not all_rows:
-        errors.append(f"{path.name}: file is empty.")
-        return bank_name, None, None, errors
+    empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
+    if empty_file_error:
+        return bank_name, None, None, [empty_file_error]
 
-    header_row = list(all_rows[0])
-    while header_row and header_row[-1] is None:
-        header_row.pop()
-    normalized_headers = [str(h).strip() if h is not None else None for h in header_row]
+    normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < 3 or normalized_headers[:3] != EXPECTED_FIRST_HEADERS:
         errors.append(
@@ -115,11 +105,9 @@ def validate_and_read_file(path: Path):
         first_name = row[2] if len(row) > 2 else None
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        if last_name is None or first_name is None:
-            errors.append(
-                f"{path.name} row {row_idx}: missing Nom or Prénom "
-                f"(Nom={last_name!r}, Prénom={first_name!r})."
-            )
+        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        if name_columns_error:
+            errors.append(name_columns_error)
             continue
         points = list(row[3:3 + n_exams]) + [None] * max(0, n_exams - len(row[3:]))
         data_rows.append((row_idx, str(last_name).strip(), str(first_name).strip(), points))
@@ -131,7 +119,7 @@ def validate_and_read_file(path: Path):
 
 
 def import_written_exam_results(year: int) -> None:
-    files = common.discover_files(WRITTEN_EXAM_RESULTS_PATH)
+    files = excel_utils.discover_files(WRITTEN_EXAM_RESULTS_PATH)
 
     all_errors = []
     parsed = []  # list of (path, bank_name, exam_names, data_rows)
@@ -145,68 +133,71 @@ def import_written_exam_results(year: int) -> None:
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
 
-    conn = common.get_connection()
+    conn = db_utils.get_connection()
 
-    classroom_id = common.get_classroom_id_by_year(conn, year)
-    print(f"Using classroom for year {year} (id={classroom_id})")
+    try:
+        with conn:
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            print(f"Using classroom for year {year} (id={classroom_id})")
 
-    bank_cache = {}
-    exam_cache = {}
-    bank_not_found_warnings = []
-    exams_created = 0
-    exams_skipped = 0
-    students_created = 0
-    students_skipped = 0
-    classroom_students_created = 0
-    classroom_students_skipped = 0
-    results_created = 0
-    results_skipped = 0
+            bank_cache = {}
+            exam_cache = {}
+            bank_not_found_warnings = []
+            exams_created = 0
+            exams_skipped = 0
+            students_created = 0
+            students_skipped = 0
+            classroom_students_created = 0
+            classroom_students_skipped = 0
+            results_created = 0
+            results_skipped = 0
 
-    for path, bank_name, exam_names, data_rows in parsed:
-        bank_id = common.find_bank_by_name(conn, bank_name, bank_cache)
-        if bank_id is None:
-            bank_not_found_warnings.append(
-                f"{path.name}: no bank found matching {bank_name!r}. File skipped."
-            )
-            continue
+            for path, bank_name, exam_names, data_rows in parsed:
+                bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
+                if bank_id is None:
+                    bank_not_found_warnings.append(
+                        f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                    )
+                    continue
 
-        exam_ids = []
-        for exam_name in exam_names:
-            exam_id, created = common.get_or_create_exam(conn, exam_name, bank_id, FORMAT, exam_cache)
-            exam_ids.append(exam_id)
-            if created:
-                exams_created += 1
-                print(f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})")
-            else:
-                exams_skipped += 1
+                exam_ids = []
+                for exam_name in exam_names:
+                    exam_id, created = db_utils.get_or_create_exam(conn, exam_name, bank_id, FORMAT, exam_cache)
+                    exam_ids.append(exam_id)
+                    if created:
+                        exams_created += 1
+                        print(f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})")
+                    else:
+                        exams_skipped += 1
 
-        for row_idx, last_name, first_name, points_row in data_rows:
-            student_id, created = common.get_or_create_student(conn, first_name, last_name)
-            if created:
-                students_created += 1
-            else:
-                students_skipped += 1
+                for row_idx, last_name, first_name, points_row in data_rows:
+                    student_id, created = db_utils.get_or_create_student(conn, first_name, last_name)
+                    if created:
+                        students_created += 1
+                    else:
+                        students_skipped += 1
 
-            classroom_student_id, created = common.get_or_create_classroom_student(
-                conn, classroom_id, student_id
-            )
-            if created:
-                classroom_students_created += 1
-            else:
-                classroom_students_skipped += 1
+                    classroom_student_id, created = db_utils.get_or_create_classroom_student(
+                        conn, classroom_id, student_id
+                    )
+                    if created:
+                        classroom_students_created += 1
+                    else:
+                        classroom_students_skipped += 1
 
-            for exam_id, points in zip(exam_ids, points_row):
-                if points is None:
-                    continue  # no result for this student/exam
-                _, created = common.get_or_create_exam_result(
-                    conn, classroom_student_id, exam_id, points
-                )
-                if created:
-                    results_created += 1
-                else:
-                    results_skipped += 1
+                    for exam_id, points in zip(exam_ids, points_row):
+                        if points is None:
+                            continue  # no result for this student/exam
+                        _, created = db_utils.get_or_create_exam_result(
+                            conn, classroom_student_id, exam_id, points
+                        )
+                        if created:
+                            results_created += 1
+                        else:
+                            results_skipped += 1
 
-    conn.close()
+    finally:
+        conn.close()
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"
