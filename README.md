@@ -37,7 +37,7 @@ To inspect the SQLite database, you can install [DB Browser for SQLite](https://
 ### Written results
 
 When written results are published,
-- fill out `input/students.xlsx` using `students_template.xlsx`
+- fill out `input/students.xlsx` using `students_template.xlsx` (don't forget to the year as the tab name!)
 - download expected input files to `.input/ecrits/` and run:
 ```bash
 python main.py

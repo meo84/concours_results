@@ -1,10 +1,18 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 # Virtual environments
 venv/
 .venv/
+
+# PII data
+db/concours_results.db
+input/students.xlsx
+input/ecrits/**/*.xlsx
+input/oraux/**/*.xlsx
+output/Summary.xlsx
 
 # Temporary files
 tmp/
