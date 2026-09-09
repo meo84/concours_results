@@ -95,6 +95,21 @@ def _loose_match_get_or_create(
     cache[cache_key] = row_id
     return row_id, True
 
+
+def eligible_student_counts_by_school(conn: sqlite3.Connection, classroom_id: int) -> dict[int, int]:
+    """Number of students eligible to the oraux in the given classroom, grouped by school_id."""
+    query = """
+        SELECT a.school_id, COUNT(*)
+        FROM admissions a
+        JOIN classroom_students cs ON cs.id = a.classroom_student_id
+        WHERE LOWER(TRIM(a.written_status)) = 'admissible'
+          AND cs.classroom_id = ?
+        GROUP BY a.school_id
+    """
+    cursor = conn.execute(query, (classroom_id,))
+    return dict(cursor.fetchall())
+
+
 def get_classroom_id_by_year(conn: sqlite3.Connection, year: int) -> int:
     """Look up an existing classroom by year. Does NOT create one.
 

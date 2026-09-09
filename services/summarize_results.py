@@ -38,9 +38,10 @@ ADMISSION_ATTR_HEADERS = [
     "Moy oral",
 ]
 
+STATUS_TO_A = {"admissible"}
 STATUS_TO_NA = {"non admissible"}
 STATUS_TO_NC = {"non classé-e", "non classee", "non classée", "non classe-e"}
-STATUS_TO_RANK = {"admissible", "classé-e", "classee", "classée", "classe-e"}
+STATUS_TO_RANK = {"classé-e", "classee", "classée", "classe-e"}
 
 FORMAT_LABELS = {"written": "écrit", "oral": "oral"}
 
@@ -119,6 +120,8 @@ def map_statuses(written_status, oral_status, rank):
 
 def map_status(status, rank):
     s = status.strip().lower()
+    if s in STATUS_TO_A:
+        return "A"
     if s in STATUS_TO_NA:
         return "NA"
     if s in STATUS_TO_NC:
@@ -146,7 +149,7 @@ def style(cell, bold=False, italic=False, center=False, wrap=False):
 # Admissions tab
 # --------------------------------------------------------------------------
 
-def build_admissions_sheet(wb, year, students, admissions_rows):
+def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student_counts_by_school_id):
     ws = wb.create_sheet(f"Admissions {year}")
 
     adm_by_key = {}
@@ -194,9 +197,17 @@ def build_admissions_sheet(wb, year, students, admissions_rows):
         for row_num in (3, 4, 5):
             ws.merge_cells(f"{start_l}{row_num}:{end_l}{row_num}")
         if n_students > 0:
-            ws[f"{start_l}3"] = f"=COUNTA({status_l}{DATA_START_ROW}:{status_l}{data_end_row})"
-            ws[f"{start_l}4"] = f"=COUNT({status_l}{DATA_START_ROW}:{status_l}{data_end_row})"
-            ws[f"{start_l}5"] = f"=IF({start_l}3=0,0,{start_l}4/{start_l}3)"
+            range_ref = f"{status_l}{DATA_START_ROW}:{status_l}{data_end_row}"
+
+            inscrits_cell_ref = f"{start_l}3"
+            ws[inscrits_cell_ref] = f"=COUNTA({range_ref})"
+
+            admissibles_cell_ref = f"{start_l}4"
+            admissibles_count = eligible_student_counts_by_school_id.get(school_id, 0)
+            ws[admissibles_cell_ref] = f"={admissibles_count}"
+
+            pourcentage_admissibles_cell_ref = f"{start_l}5"
+            ws[pourcentage_admissibles_cell_ref] = f"=IF({inscrits_cell_ref}=0,0,{admissibles_cell_ref}/{inscrits_cell_ref})"
         for row_num in (3, 4, 5):
             cell = ws[f"{start_l}{row_num}"]
             style(cell, italic=True, center=True)
@@ -369,13 +380,14 @@ def summarize_results(year, output_path=None):
             cs_ids = [s["classroom_student_id"] for s in students]
             admissions_rows = get_admissions(conn, cs_ids)
             exam_result_rows = get_exam_results(conn, cs_ids)
+            eligible_student_counts_by_school_id = db_utils.eligible_student_counts_by_school(conn, classroom_id)
     finally:
         conn.close()
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
-    build_admissions_sheet(wb, year, students, admissions_rows)
+    build_admissions_sheet(wb, year, students, admissions_rows, eligible_student_counts_by_school_id)
     build_notes_sheet(wb, year, students, exam_result_rows)
 
     wb.save(output_path)
