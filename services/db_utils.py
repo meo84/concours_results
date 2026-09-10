@@ -307,6 +307,19 @@ def get_school_bank_id(conn: sqlite3.Connection, school_id: int) -> int:
     return row[0]
 
 
+def get_or_create_admission(
+    conn: sqlite3.Connection, classroom_student_id: int, school_id: int, status: str
+) -> tuple:
+    """Exact match on (classroom_student_id, school_id), matching the unique
+    constraint. Returns (admission_id, created: bool). Does not update
+    status if it already exists."""
+
+    return _exact_match_get_or_create(
+        conn=conn, table="admissions", scope_sql="WHERE classroom_student_id = ? AND school_id = ?", scope_params=(classroom_student_id, school_id),
+        insert_sql="INSERT INTO admissions (classroom_student_id, school_id, status) VALUES (?, ?, ?)", insert_params=(classroom_student_id, school_id, status),
+    )
+
+
 def get_or_create_exam(
     conn: sqlite3.Connection, exam_name: str, bank_id: int, format_: str, cache: dict
 ) -> tuple:

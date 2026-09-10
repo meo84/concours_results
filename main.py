@@ -6,9 +6,9 @@ import openpyxl
 from services.anonymize_past_students import anonymize_past_students
 from db.init_db import init_db
 from services.import_classroom_students import import_classroom_students
-from services.import_bank_schools import import_bank_schools
+from services.import_written_admission_statuses import import_written_admission_statuses
 from services.import_written_exam_results import import_written_exam_results
-from services.import_written_admissions import import_written_admissions
+from services.import_written_admission_scores import import_written_admission_scores
 from services.import_oral_exam_results_and_admissions import import_oral_exam_results_and_admissions
 from services.summarize_results import summarize_results
 
@@ -57,9 +57,9 @@ def validate_written_inputs() -> None:
 
 def summarize_written_results(year: int) -> None:
     import_classroom_students(year)
-    import_bank_schools()
+    import_written_admission_statuses(year)
     import_written_exam_results(year)
-    import_written_admissions(year)
+    import_written_admission_scores(year)
     summarize_results(year)
 
 
