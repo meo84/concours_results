@@ -281,24 +281,27 @@ def find_admission(conn: sqlite3.Connection, classroom_student_id: int, school_i
     return row if row else None
 
 
-def update_admission_oral_result(
+def update_admission(
     conn: sqlite3.Connection,
     admission_id: int,
-    status,
-    rank,
-    total_points,
-    average,
-    oral_points,
+    *,
+    status: str = None,
+    rank: int = None,
+    total_points: float = None,
+    average: float = None,
+    oral_points: float = None,
 ) -> None:
-    """Overwrites status, rank, total_points, average, and oral_points on an
-    existing admissions row. Does not touch written_points/written_average."""
+    """Updates only the provided attributes of an existing admissions row."""
+    fields = {k: v for k, v in locals().items()
+              if k not in ("conn", "admission_id") and v is not None}
+
+    if not fields:
+        return
+
+    set_clause = ", ".join(f"{col} = ?" for col in fields)
     conn.execute(
-        """
-        UPDATE admissions
-        SET status = ?, rank = ?, total_points = ?, average = ?, oral_points = ?
-        WHERE id = ?;
-        """,
-        (status, rank, total_points, average, oral_points, admission_id),
+        f"UPDATE admissions SET {set_clause} WHERE id = ?;",
+        [*fields.values(), admission_id],
     )
 
 

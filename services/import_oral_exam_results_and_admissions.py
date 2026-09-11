@@ -277,8 +277,9 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
                     else:
                         oral_points = None
 
-                    db_utils.update_admission_oral_result(
-                        conn, admission_id, status, rank, total, average, oral_points
+                    db_utils.update_admission(
+                        conn, admission_id,
+                        status=status, rank=rank, total_points=total, average=average, oral_points=oral_points
                     )
                     admissions_updated += 1
 
