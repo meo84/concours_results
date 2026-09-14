@@ -26,7 +26,7 @@ python -m pip install -e .
 
 ```bash
 py -m venv .venv
-.venv\Scripts\activate
+source .venv\Scripts\activate
 python -m pip install -e .
 ```
 
