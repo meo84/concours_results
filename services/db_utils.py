@@ -281,30 +281,46 @@ def find_admission(conn: sqlite3.Connection, classroom_student_id: int, school_i
     return row if row else None
 
 
-def update_admission_oral_result(
+def update_admission(
     conn: sqlite3.Connection,
     admission_id: int,
-    status,
-    rank,
-    total_points,
-    average,
-    oral_points,
+    *,
+    status: str = None,
+    rank: int = None,
+    total_points: float = None,
+    average: float = None,
+    oral_points: float = None,
 ) -> None:
-    """Overwrites status, rank, total_points, average, and oral_points on an
-    existing admissions row. Does not touch written_points/written_average."""
+    """Updates only the provided attributes of an existing admissions row."""
+    fields = {k: v for k, v in locals().items()
+              if k not in ("conn", "admission_id") and v is not None}
+
+    if not fields:
+        return
+
+    set_clause = ", ".join(f"{col} = ?" for col in fields)
     conn.execute(
-        """
-        UPDATE admissions
-        SET status = ?, rank = ?, total_points = ?, average = ?, oral_points = ?
-        WHERE id = ?;
-        """,
-        (status, rank, total_points, average, oral_points, admission_id),
+        f"UPDATE admissions SET {set_clause} WHERE id = ?;",
+        [*fields.values(), admission_id],
     )
 
 
 def get_school_bank_id(conn: sqlite3.Connection, school_id: int) -> int:
     row = conn.execute("SELECT bank_id FROM schools WHERE id = ?;", (school_id,)).fetchone()
     return row[0]
+
+
+def get_or_create_admission(
+    conn: sqlite3.Connection, classroom_student_id: int, school_id: int, status: str
+) -> tuple:
+    """Exact match on (classroom_student_id, school_id), matching the unique
+    constraint. Returns (admission_id, created: bool). Does not update
+    status if it already exists."""
+
+    return _exact_match_get_or_create(
+        conn=conn, table="admissions", scope_sql="WHERE classroom_student_id = ? AND school_id = ?", scope_params=(classroom_student_id, school_id),
+        insert_sql="INSERT INTO admissions (classroom_student_id, school_id, status) VALUES (?, ?, ?)", insert_params=(classroom_student_id, school_id, status),
+    )
 
 
 def get_or_create_exam(

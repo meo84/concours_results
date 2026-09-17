@@ -37,14 +37,14 @@ Behavior:
         - for each data row, find or create the student (exact match on
           first_name/last_name), find or create the classroom_student
           (exact match on classroom_id and student_id)
-        - create the admissions record (classroom_student_id,
+        - find or create the admissions record (classroom_student_id,
           school_id), setting status (from Statut), written_points (from
           Total écrit), and written_average (from Moyenne).
           Rows where all three of Statut/Total écrit/Moyenne are blank
           are skipped entirely (no admissions record created).
 
 Usage:
-    python -m services.import_written_admissions 2026
+    python -m services.import_written_admission_scores 2026
 """
 
 import argparse
@@ -146,7 +146,7 @@ def validate_and_read_file(path: Path):
     return school_name, data_rows, errors
 
 
-def import_written_admissions(year: int) -> None:
+def import_written_admission_scores(year: int) -> None:
     files = excel_utils.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
 
     all_errors = []
@@ -236,4 +236,4 @@ if __name__ == "__main__":
     parser.add_argument("year", type=int)
 
     args = parser.parse_args()
-    import_written_admissions(args.year)
+    import_written_admission_scores(args.year)

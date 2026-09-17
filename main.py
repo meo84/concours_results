@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
 from services import excel_utils
-from config import STUDENTS_PATH, WRITTEN_STATUSES_PER_BANK_PATH, WRITTEN_EXAM_RESULTS_PATH, WRITTEN_ADMISSIONS_PER_SCHOOL_PATH, ORAL_ADMISSIONS_PER_SCHOOL_PATH
+from config import STUDENTS_PATH, WRITTEN_STATUSES_PER_BANK_PATH, WRITTEN_EXAM_RESULTS_PATH, WRITTEN_ADMISSIONS_PER_SCHOOL_PATH, ORAL_ADMISSIONS_PER_SCHOOL_PATH, ORAL_STATUSES_PER_BANK_PATH
 import openpyxl
 from services.anonymize_past_students import anonymize_past_students
 from db.init_db import init_db
 from services.import_classroom_students import import_classroom_students
-from services.import_bank_schools import import_bank_schools
+from services.import_written_admission_statuses import import_written_admission_statuses
 from services.import_written_exam_results import import_written_exam_results
-from services.import_written_admissions import import_written_admissions
+from services.import_written_admission_scores import import_written_admission_scores
+from services.import_oral_admission_statuses import import_oral_admission_statuses
 from services.import_oral_exam_results_and_admissions import import_oral_exam_results_and_admissions
 from services.summarize_results import summarize_results
 
@@ -57,17 +58,19 @@ def validate_written_inputs() -> None:
 
 def summarize_written_results(year: int) -> None:
     import_classroom_students(year)
-    import_bank_schools()
+    import_written_admission_statuses(year)
     import_written_exam_results(year)
-    import_written_admissions(year)
+    import_written_admission_scores(year)
     summarize_results(year)
 
 
 def validate_oral_inputs() -> None:
+    excel_utils.discover_files(ORAL_STATUSES_PER_BANK_PATH)
     excel_utils.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
 
 
 def summarize_oral_results(year: int) -> None:
+    import_oral_admission_statuses(year)
     import_oral_exam_results_and_admissions(year)
     summarize_results(year)
 
