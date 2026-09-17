@@ -72,7 +72,7 @@ def get_admissions(conn, classroom_student_ids):
     placeholders = ",".join("?" for _ in classroom_student_ids)
     return conn.execute(
         f"""
-        SELECT a.classroom_student_id, a.status, a.rank, a.average,
+        SELECT a.classroom_student_id, a.written_status, a.oral_status, a.rank, a.average,
                a.written_average, a.oral_average, a.total_points,
                a.written_points, a.oral_points,
                sc.id AS school_id, sc.name AS school_name,
@@ -108,9 +108,16 @@ def get_exam_results(conn, classroom_student_ids):
 # Value mapping helpers
 # --------------------------------------------------------------------------
 
+def map_statuses(written_status, oral_status, rank):
+    if oral_status is None:
+        if written_status is None:
+            return None
+        return map_status(written_status, rank)
+
+    return map_status(oral_status, rank)
+
+
 def map_status(status, rank):
-    if status is None:
-        return None
     s = status.strip().lower()
     if s in STATUS_TO_NA:
         return "NA"
@@ -239,7 +246,7 @@ def build_admissions_sheet(wb, year, students, admissions_rows):
             adm = adm_by_key.get((student["classroom_student_id"], school_id))
             values = [None] * N_SUB
             if adm is not None:
-                values[0] = map_status(adm["status"], adm["rank"])
+                values[0] = map_statuses(adm["written_status"], adm["oral_status"], adm["rank"])
                 values[1] = adm["total_points"]
                 values[2] = adm["average"]
                 values[3] = adm["written_points"]

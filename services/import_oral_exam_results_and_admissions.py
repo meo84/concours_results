@@ -50,7 +50,7 @@ Behavior:
               per-exam result columns below, since those don't require an
               admissions row. If found, it is updated (overwritten, not
               just filled in) with:
-                status        <- Statut
+                oral_status   <- Statut
                 rank          <- Rang
                 total_points  <- Total
                 average       <- Moyenne
@@ -105,7 +105,7 @@ def _is_effectively_empty(all_rows) -> bool:
 def validate_and_read_file(path: Path):
     """Return (school_name, extra_headers, data_rows, errors, is_empty).
 
-    data_rows is a list of (row_idx, last_name, first_name, status, rank,
+    data_rows is a list of (row_idx, last_name, first_name, oral_status, rank,
     total, average, total_oral, extra_values) where extra_values is a list
     aligned with extra_headers (None for a blank cell). On any format
     error, returns (school_name_or_None, None, None, errors, False).
@@ -151,7 +151,7 @@ def validate_and_read_file(path: Path):
     for row_idx, row in enumerate(all_rows[1:], start=2):
         last_name = row[1] if len(row) > 1 else None
         first_name = row[2] if len(row) > 2 else None
-        status = row[3] if len(row) > 3 else None
+        oral_status = row[3] if len(row) > 3 else None
         rank = row[4] if len(row) > 4 else None
         total = row[5] if len(row) > 5 else None
         average = row[6] if len(row) > 6 else None
@@ -176,7 +176,7 @@ def validate_and_read_file(path: Path):
             row_idx,
             str(last_name).strip(),
             str(first_name).strip(),
-            status,
+            oral_status,
             rank,
             total,
             average,
@@ -238,8 +238,8 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
 
                 # Resolve classroom_student_id per row; rows that fail are excluded
                 # from both the admissions update and the exam results creation.
-                resolved_rows = []  # list of (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
-                for row_idx, last_name, first_name, status, rank, total, average, total_oral, extra_values in data_rows:
+                resolved_rows = []  # list of (row_idx, classroom_student_id, oral_status, rank, total, average, total_oral, extra_values)
+                for row_idx, last_name, first_name, oral_status, rank, total, average, total_oral, extra_values in data_rows:
                     student_id = db_utils.find_student_by_name(conn, first_name, last_name)
                     if student_id is None:
                         row_errors.append(
@@ -257,7 +257,7 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
                         continue
 
                     resolved_rows.append(
-                        (row_idx, classroom_student_id, status, rank, total, average, total_oral, extra_values)
+                        (row_idx, classroom_student_id, oral_status, rank, total, average, total_oral, extra_values)
                     )
 
                     admission = db_utils.find_admission(conn, classroom_student_id, school_id)
@@ -279,7 +279,7 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
 
                     db_utils.update_admission(
                         conn, admission_id,
-                        status=status, rank=rank, total_points=total, average=average, oral_points=oral_points
+                        oral_status=oral_status, rank=rank, total_points=total, average=average, oral_points=oral_points
                     )
                     admissions_updated += 1
 

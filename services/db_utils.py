@@ -191,35 +191,21 @@ def get_or_create_school(
     )
 
 
-
-def get_or_create_admission(
-    conn: sqlite3.Connection, classroom_student_id: int, school_id: int, status: str
-) -> tuple:
-    """Exact match on (classroom_student_id, school_id), matching the unique
-    constraint. Returns (admission_id, created: bool). Does not update status
-    if it already exists."""
-
-    return _exact_match_get_or_create(
-        conn=conn, table="admissions", scope_sql="WHERE classroom_student_id = ? AND school_id = ?", scope_params=(classroom_student_id, school_id),
-        insert_sql="INSERT INTO admissions (classroom_student_id, school_id, status) VALUES (?, ?, ?)", insert_params=(classroom_student_id, school_id, status),
-    )
-
-
 def upsert_admission_written_result(
     conn: sqlite3.Connection,
     classroom_student_id: int,
     school_id: int,
-    status,
+    written_status,
     written_points,
     written_average,
 ) -> tuple:
     """Find or create an admissions row by (classroom_student_id, school_id).
 
-    Unlike get_or_create_admission, this OVERWRITES status, written_points,
+    Unlike get_or_create_admission, this OVERWRITES written_status, written_points,
     and written_average if the row already exists — intended for the
     per-school results import, which is the authoritative source for these
     fields (an earlier admissibility import may have already created the
-    row with only `status` set from a different, earlier-stage value).
+    row with only `written_status` set from a different, earlier-stage value).
     Returns (admission_id, created: bool)."""
     row = conn.execute(
         "SELECT id FROM admissions WHERE classroom_student_id = ? AND school_id = ?;",
@@ -230,19 +216,19 @@ def upsert_admission_written_result(
         conn.execute(
             """
             UPDATE admissions
-            SET status = ?, written_points = ?, written_average = ?
+            SET written_status = ?, written_points = ?, written_average = ?
             WHERE id = ?;
             """,
-            (status, written_points, written_average, row[0]),
+            (written_status, written_points, written_average, row[0]),
         )
         return row[0], False
 
     cur = conn.execute(
         """
-        INSERT INTO admissions (classroom_student_id, school_id, status, written_points, written_average)
+        INSERT INTO admissions (classroom_student_id, school_id, written_status, written_points, written_average)
         VALUES (?, ?, ?, ?, ?);
         """,
-        (classroom_student_id, school_id, status, written_points, written_average),
+        (classroom_student_id, school_id, written_status, written_points, written_average),
     )
     return cur.lastrowid, True
 
@@ -285,15 +271,21 @@ def update_admission(
     conn: sqlite3.Connection,
     admission_id: int,
     *,
-    status: str = None,
+    oral_status: str = None,
     rank: int = None,
     total_points: float = None,
     average: float = None,
     oral_points: float = None,
 ) -> None:
     """Updates only the provided attributes of an existing admissions row."""
-    fields = {k: v for k, v in locals().items()
-              if k not in ("conn", "admission_id") and v is not None}
+    fields = {
+        "oral_status": oral_status,
+        "rank": rank,
+        "total_points": total_points,
+        "average": average,
+        "oral_points": oral_points
+    }
+    fields = {k: v for k, v in fields.items() if v is not None}
 
     if not fields:
         return
@@ -311,15 +303,33 @@ def get_school_bank_id(conn: sqlite3.Connection, school_id: int) -> int:
 
 
 def get_or_create_admission(
-    conn: sqlite3.Connection, classroom_student_id: int, school_id: int, status: str
+    conn: sqlite3.Connection,
+    classroom_student_id: int,
+    school_id: int,
+    *,
+    written_status: str = None,
+    oral_status: str = None,
 ) -> tuple:
     """Exact match on (classroom_student_id, school_id), matching the unique
-    constraint. Returns (admission_id, created: bool). Does not update
-    status if it already exists."""
+    constraint. Returns (admission_id, created: bool). Creates only the
+    provided status column(s); does not update status if the row already
+    exists."""
+    fields = {
+        "written_status": written_status,
+        "oral_status": oral_status,
+    }
+    fields = {k: v for k, v in fields.items() if v is not None}
+
+    if not fields:
+        raise ValueError("at least one of written_status or oral_status is required")
+
+    columns = ["classroom_student_id", "school_id", *fields.keys()]
+    placeholders = ", ".join("?" for _ in columns)
+    insert_params = (classroom_student_id, school_id, *fields.values())
 
     return _exact_match_get_or_create(
         conn=conn, table="admissions", scope_sql="WHERE classroom_student_id = ? AND school_id = ?", scope_params=(classroom_student_id, school_id),
-        insert_sql="INSERT INTO admissions (classroom_student_id, school_id, status) VALUES (?, ?, ?)", insert_params=(classroom_student_id, school_id, status),
+        insert_sql=f"INSERT INTO admissions ({', '.join(columns)}) VALUES ({placeholders})", insert_params=insert_params,
     )
 
 

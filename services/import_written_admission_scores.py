@@ -38,7 +38,7 @@ Behavior:
           first_name/last_name), find or create the classroom_student
           (exact match on classroom_id and student_id)
         - find or create the admissions record (classroom_student_id,
-          school_id), setting status (from Statut), written_points (from
+          school_id), setting written_status (from Statut), written_points (from
           Total écrit), and written_average (from Moyenne).
           Rows where all three of Statut/Total écrit/Moyenne are blank
           are skipped entirely (no admissions record created).
@@ -68,7 +68,7 @@ FILENAME_PATTERN = re.compile(
 def validate_and_read_file(path: Path):
     """Return (school_name, data_rows, errors).
 
-    data_rows is a list of (row_idx, last_name, first_name, status,
+    data_rows is a list of (row_idx, last_name, first_name, written_status,
     written_points, written_average). On any format error, returns
     (school_name_or_None, None, errors).
     """
@@ -120,7 +120,7 @@ def validate_and_read_file(path: Path):
     for row_idx, row in enumerate(all_rows[1:], start=2):
         last_name = row[1] if len(row) > 1 else None
         first_name = row[2] if len(row) > 2 else None
-        status = row[3] if len(row) > 3 else None
+        written_status = row[3] if len(row) > 3 else None
         written_points = row[4] if len(row) > 4 else None
         written_average = row[5] if len(row) > 5 else None
 
@@ -135,7 +135,7 @@ def validate_and_read_file(path: Path):
             row_idx,
             str(last_name).strip(),
             str(first_name).strip(),
-            status,
+            written_status,
             written_points,
             written_average,
         ))
@@ -186,8 +186,8 @@ def import_written_admission_scores(year: int) -> None:
                     )
                     continue
 
-                for row_idx, last_name, first_name, status, written_points, written_average in data_rows:
-                    if status is None and written_points is None and written_average is None:
+                for row_idx, last_name, first_name, written_status, written_points, written_average in data_rows:
+                    if written_status is None and written_points is None and written_average is None:
                         rows_skipped_blank += 1
                         continue
 
@@ -205,9 +205,9 @@ def import_written_admission_scores(year: int) -> None:
                     else:
                         classroom_students_skipped += 1
 
-                    status_value = str(status).strip() if status is not None else None
+                    written_status_value = str(written_status).strip() if written_status is not None else None
                     _, created = db_utils.upsert_admission_written_result(
-                        conn, classroom_student_id, school_id, status_value, written_points, written_average
+                        conn, classroom_student_id, school_id, written_status_value, written_points, written_average
                     )
                     if created:
                         admissions_created += 1
