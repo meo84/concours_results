@@ -1,6 +1,8 @@
-import openpyxl
-from pathlib import Path
+import re
 import unicodedata
+from pathlib import Path
+
+import openpyxl
 
 
 def discover_files(folder: Path) -> list:
@@ -48,10 +50,8 @@ def normalize_header_row(row) -> list[str | None]:
     while headers and headers[-1] is None:
         headers.pop()
 
-    return [
-        str(header).strip() if header is not None else None
-        for header in headers
-    ]
+    return [str(header).strip() if header is not None else None for header in headers]
+
 
 def validate_name_columns(
     row_idx: int,
@@ -68,10 +68,10 @@ def validate_name_columns(
 
     return None
 
+
 def validate_non_empty_file(rows: list[tuple], path_name: str) -> str | None:
     """Return an error when file is empty, otherwise None."""
     if not rows:
-      return (f"{path_name}: file is empty")
+        return f"{path_name}: file is empty"
 
     return None
-

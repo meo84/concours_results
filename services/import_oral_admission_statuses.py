@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Import oral admission statuses from ./input/oraux/statuts_par_concours/
 into concours_results.db.
@@ -41,20 +40,17 @@ Behavior:
               If missing, the admissions update for this row is skipped and
               an error is recorded.
               If found, it is updated (overwritten, not just filled in) with
-              the status from the school-name column if the status is not blank
+              the oral_ status from the school-name column if the status is not blank
 
 Usage:
     python -m services.import_oral_admission_statuses 2026
 """
 
 import re
-import unicodedata
 from pathlib import Path
 
-import openpyxl
-
-from services import db_utils, excel_utils
 from config import ORAL_STATUSES_PER_BANK_PATH
+from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 
@@ -63,15 +59,18 @@ FILENAME_PATTERN = re.compile(
     r"Banque\s+(?P<bank_name>.+)\s+PC(?P<suffix>.*)\.xlsx$"
 )
 
+
 def validate_and_read_file(path: Path):
     """Return (bank_name, school_names, data_rows, errors).
 
-    data_rows is a list of (row_idx, last_name, first_name, status) where
-    status is a list aligned with school_names (None for a blank cell).
+    data_rows is a list of (row_idx, last_name, first_name, oral_status) where
+    oral_status is a list aligned with school_names (None for a blank cell).
     On any format error, returns (bank_name_or_None, None, None, errors).
     """
     bank_name, error = excel_utils.validate_filename(
-        path, FILENAME_PATTERN, "bank_name",
+        path,
+        FILENAME_PATTERN,
+        "bank_name",
         "Status pour l_admission de la classe PC-PC pour la banque Banque {bank_name} PC...xlsx",
     )
 
@@ -104,12 +103,18 @@ def validate_and_read_file(path: Path):
         first_name = row[2] if len(row) > 2 else None
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        name_columns_error = excel_utils.validate_name_columns(
+            row_idx, last_name, first_name, path.name
+        )
         if name_columns_error:
             errors.append(name_columns_error)
             continue
-        status = list(row[3:3 + n_schools]) + [None] * max(0, n_schools - len(row[3:]))
-        data_rows.append((row_idx, str(last_name).strip(), str(first_name).strip(), status))
+        oral_status = list(row[3 : 3 + n_schools]) + [None] * max(
+            0, n_schools - len(row[3:])
+        )
+        data_rows.append(
+            (row_idx, str(last_name).strip(), str(first_name).strip(), oral_status)
+        )
 
     if errors:
         return bank_name, school_names, None, errors
@@ -156,7 +161,9 @@ def import_oral_admission_statuses(year: int) -> None:
 
                 school_ids = []
                 for school_name in school_names:
-                    school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+                    school_id = db_utils.find_school_by_name(
+                        conn, school_name, school_cache
+                    )
                     if school_id is None:
                         school_not_found_warnings.append(
                             f"{path.name}: no school found matching {school_name!r}. File skipped."
@@ -165,8 +172,10 @@ def import_oral_admission_statuses(year: int) -> None:
 
                     school_ids.append(school_id)
 
-                for row_idx, last_name, first_name, statuses_row in data_rows:
-                    student_id = db_utils.find_student_by_name(conn, first_name, last_name)
+                for row_idx, last_name, first_name, oral_statuses_row in data_rows:
+                    student_id = db_utils.find_student_by_name(
+                        conn, first_name, last_name
+                    )
                     if student_id is None:
                         row_errors.append(
                             f"{path.name} row {row_idx}: no student found for "
@@ -174,7 +183,9 @@ def import_oral_admission_statuses(year: int) -> None:
                         )
                         continue
 
-                    classroom_student_id = db_utils.find_classroom_student(conn, classroom_id, student_id)
+                    classroom_student_id = db_utils.find_classroom_student(
+                        conn, classroom_id, student_id
+                    )
                     if classroom_student_id is None:
                         row_errors.append(
                             f"{path.name} row {row_idx}: no classroom_student found for "
@@ -182,11 +193,13 @@ def import_oral_admission_statuses(year: int) -> None:
                         )
                         continue
 
-                    for school_id, status in zip(school_ids, statuses_row):
-                        if status is None:
-                            continue  # no status for this student/school
+                    for school_id, oral_status in zip(school_ids, oral_statuses_row):
+                        if oral_status is None:
+                            continue  # no oral_status for this student/school
 
-                        admission = db_utils.find_admission(conn, classroom_student_id, school_id)
+                        admission = db_utils.find_admission(
+                            conn, classroom_student_id, school_id
+                        )
                         if admission is None:
                             row_errors.append(
                                 f"{path.name} row {row_idx}: no admissions record found for "
@@ -196,8 +209,10 @@ def import_oral_admission_statuses(year: int) -> None:
                             continue
 
                         admission_id, _ = admission
-                        status, rank = parse_admission_status(status)
-                        db_utils.update_admission(conn, admission_id, status=status, rank=rank)
+                        oral_status, rank = parse_admission_status(oral_status)
+                        db_utils.update_admission(
+                            conn, admission_id, oral_status=oral_status, rank=rank
+                        )
                         admissions_updated += 1
 
     finally:
@@ -207,6 +222,7 @@ def import_oral_admission_statuses(year: int) -> None:
         f"\nDone. {len(parsed)} file(s) processed\n"
         f"Admissions updated: {admissions_updated}.\n"
     )
+
 
 def parse_admission_status(status):
     normalized = db_utils.normalize_name(status)
