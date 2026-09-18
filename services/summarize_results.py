@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 summarize_results.py
 
@@ -16,13 +15,14 @@ Can also be imported and called as:
 """
 
 import argparse
-from services import db_utils
-from config import DB_PATH, OUTPUT_PATH
 from pathlib import Path
 
 import openpyxl
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+
+from config import OUTPUT_PATH
+from services import db_utils
 
 FONT_NAME = "Arial"
 FONT_SIZE = 10
@@ -49,6 +49,7 @@ FORMAT_LABELS = {"written": "écrit", "oral": "oral"}
 # --------------------------------------------------------------------------
 # Data access
 # --------------------------------------------------------------------------
+
 
 def get_students(conn, classroom_id):
     """All students in the classroom, ordered alphabetically by last name, first name."""
@@ -109,6 +110,7 @@ def get_exam_results(conn, classroom_student_ids):
 # Value mapping helpers
 # --------------------------------------------------------------------------
 
+
 def map_statuses(written_status, oral_status, rank):
     if oral_status is None:
         if written_status is None:
@@ -139,29 +141,39 @@ def repeating_label(repeating):
 # Styling helpers
 # --------------------------------------------------------------------------
 
+
 def style(cell, bold=False, italic=False, center=False, wrap=False):
     cell.font = Font(name=FONT_NAME, size=FONT_SIZE, bold=bold, italic=italic)
     if center or wrap:
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=wrap)
+        cell.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=wrap
+        )
 
 
 # --------------------------------------------------------------------------
 # Admissions tab
 # --------------------------------------------------------------------------
 
-def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student_counts_by_school_id):
+
+def build_admissions_sheet(
+    wb, year, students, admissions_rows, eligible_student_counts_by_school_id
+):
     ws = wb.create_sheet(f"Admissions {year}")
 
     adm_by_key = {}
     schools_by_bank = {}  # bank_name -> {school_id: school_name}
     for r in admissions_rows:
         adm_by_key[(r["classroom_student_id"], r["school_id"])] = r
-        schools_by_bank.setdefault(r["bank_name"], {})[r["school_id"]] = r["school_name"]
+        schools_by_bank.setdefault(r["bank_name"], {})[r["school_id"]] = r[
+            "school_name"
+        ]
 
     bank_names = sorted(schools_by_bank.keys(), key=str.lower)
     columns = []  # (bank_name, school_id, school_name), in display order
     for bank_name in bank_names:
-        for school_id, school_name in sorted(schools_by_bank[bank_name].items(), key=lambda kv: kv[1].lower()):
+        for school_id, school_name in sorted(
+            schools_by_bank[bank_name].items(), key=lambda kv: kv[1].lower()
+        ):
             columns.append((bank_name, school_id, school_name))
 
     FIRST_DATA_COL = 4  # column D
@@ -177,8 +189,15 @@ def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student
     for coord in ("A11", "B11", "C11"):
         style(ws[coord], bold=True)
 
-    for coord, label in (("C3", "Inscrits"), ("C4", "Admissibles"), ("C5", "Pourcentage admissibles"),
-                          ("C7", "Moyenne"), ("C8", "Ecart-type"), ("C9", "Min"), ("C10", "Max")):
+    for coord, label in (
+        ("C3", "Inscrits"),
+        ("C4", "Admissibles"),
+        ("C5", "Pourcentage admissibles"),
+        ("C7", "Moyenne"),
+        ("C8", "Ecart-type"),
+        ("C9", "Min"),
+        ("C10", "Max"),
+    ):
         ws[coord] = label
         style(ws[coord], italic=True)
 
@@ -207,7 +226,9 @@ def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student
             ws[admissibles_cell_ref] = f"={admissibles_count}"
 
             pourcentage_admissibles_cell_ref = f"{start_l}5"
-            ws[pourcentage_admissibles_cell_ref] = f"=IF({inscrits_cell_ref}=0,0,{admissibles_cell_ref}/{inscrits_cell_ref})"
+            ws[pourcentage_admissibles_cell_ref] = (
+                f"=IF({inscrits_cell_ref}=0,0,{admissibles_cell_ref}/{inscrits_cell_ref})"
+            )
         for row_num in (3, 4, 5):
             cell = ws[f"{start_l}{row_num}"]
             style(cell, italic=True, center=True)
@@ -257,7 +278,9 @@ def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student
             adm = adm_by_key.get((student["classroom_student_id"], school_id))
             values = [None] * N_SUB
             if adm is not None:
-                values[0] = map_statuses(adm["written_status"], adm["oral_status"], adm["rank"])
+                values[0] = map_statuses(
+                    adm["written_status"], adm["oral_status"], adm["rank"]
+                )
                 values[1] = adm["total_points"]
                 values[2] = adm["average"]
                 values[3] = adm["written_points"]
@@ -279,6 +302,7 @@ def build_admissions_sheet(wb, year, students, admissions_rows, eligible_student
 # Notes tab
 # --------------------------------------------------------------------------
 
+
 def build_notes_sheet(wb, year, students, exam_result_rows):
     ws = wb.create_sheet(f"Notes {year}")
 
@@ -286,12 +310,17 @@ def build_notes_sheet(wb, year, students, exam_result_rows):
     exams_by_bank = {}  # bank_name -> {exam_id: (exam_name, exam_format)}
     for r in exam_result_rows:
         results_by_key[(r["classroom_student_id"], r["exam_id"])] = r["points"]
-        exams_by_bank.setdefault(r["bank_name"], {})[r["exam_id"]] = (r["exam_name"], r["exam_format"])
+        exams_by_bank.setdefault(r["bank_name"], {})[r["exam_id"]] = (
+            r["exam_name"],
+            r["exam_format"],
+        )
 
     bank_names = sorted(exams_by_bank.keys(), key=str.lower)
     columns = []  # (bank_name, exam_id, exam_name, exam_format)
     for bank_name in bank_names:
-        for exam_id, (exam_name, exam_format) in sorted(exams_by_bank[bank_name].items(), key=lambda kv: kv[1][0].lower()):
+        for exam_id, (exam_name, exam_format) in sorted(
+            exams_by_bank[bank_name].items(), key=lambda kv: kv[1][0].lower()
+        ):
             columns.append((bank_name, exam_id, exam_name, exam_format))
 
     FIRST_DATA_COL = 4  # column D
@@ -305,14 +334,21 @@ def build_notes_sheet(wb, year, students, exam_result_rows):
     for coord in ("A8", "B8", "C8"):
         style(ws[coord], bold=True)
 
-    for coord, label in (("C4", "Moyenne"), ("C5", "Ecart-type"), ("C6", "Min"), ("C7", "Max")):
+    for coord, label in (
+        ("C4", "Moyenne"),
+        ("C5", "Ecart-type"),
+        ("C6", "Min"),
+        ("C7", "Max"),
+    ):
         ws[coord] = label
         style(ws[coord], italic=True)
 
     for idx, (bank_name, exam_id, exam_name, exam_format) in enumerate(columns):
         col_l = get_column_letter(FIRST_DATA_COL + idx)
 
-        ws[f"{col_l}2"] = FORMAT_LABELS.get((exam_format or "").strip().lower(), exam_format)
+        ws[f"{col_l}2"] = FORMAT_LABELS.get(
+            (exam_format or "").strip().lower(), exam_format
+        )
         style(ws[f"{col_l}2"], bold=True)
 
         ws[f"{col_l}3"] = exam_name
@@ -363,6 +399,7 @@ def build_notes_sheet(wb, year, students, exam_result_rows):
 # Entry points
 # --------------------------------------------------------------------------
 
+
 def summarize_results(year, output_path=None):
     """
     Build Summary.xlsx for the given classroom year.
@@ -380,14 +417,18 @@ def summarize_results(year, output_path=None):
             cs_ids = [s["classroom_student_id"] for s in students]
             admissions_rows = get_admissions(conn, cs_ids)
             exam_result_rows = get_exam_results(conn, cs_ids)
-            eligible_student_counts_by_school_id = db_utils.eligible_student_counts_by_school(conn, classroom_id)
+            eligible_student_counts_by_school_id = (
+                db_utils.eligible_student_counts_by_school(conn, classroom_id)
+            )
     finally:
         conn.close()
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
-    build_admissions_sheet(wb, year, students, admissions_rows, eligible_student_counts_by_school_id)
+    build_admissions_sheet(
+        wb, year, students, admissions_rows, eligible_student_counts_by_school_id
+    )
     build_notes_sheet(wb, year, students, exam_result_rows)
 
     wb.save(output_path)
@@ -396,9 +437,16 @@ def summarize_results(year, output_path=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Summarize concours results into Summary.xlsx")
+    parser = argparse.ArgumentParser(
+        description="Summarize concours results into Summary.xlsx"
+    )
     parser.add_argument("year", type=int, help="Classroom year to summarize")
-    parser.add_argument("--output", dest="output_path", default=None, help="Output xlsx path (default: Summary.xlsx)")
+    parser.add_argument(
+        "--output",
+        dest="output_path",
+        default=None,
+        help="Output xlsx path (default: Summary.xlsx)",
+    )
     args = parser.parse_args()
 
     try:

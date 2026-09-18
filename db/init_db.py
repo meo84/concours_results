@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Initialize the concours_results SQLite database.
 
@@ -15,7 +14,7 @@ Usage:
 """
 
 import sqlite3
-from pathlib import Path
+
 from config import DB_PATH
 
 TABLES = [

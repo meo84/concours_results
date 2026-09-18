@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Import per-school admission results from ./input/ecrits/notes_par_ecole/
 into concours_results.db.
@@ -49,13 +48,10 @@ Usage:
 
 import argparse
 import re
-import unicodedata
 from pathlib import Path
 
-import openpyxl
-
-from services import db_utils, excel_utils
 from config import WRITTEN_ADMISSIONS_PER_SCHOOL_PATH
+from services import db_utils, excel_utils
 
 EXPECTED_STRICT_HEADERS = ["Numéro", "Nom", "Prénom", "Statut"]
 EXPECTED_LOOSE_HEADERS = ["Total écrit", "Moyenne"]
@@ -75,7 +71,9 @@ def validate_and_read_file(path: Path):
     errors = []
 
     school_name, error = excel_utils.validate_filename(
-        path, FILENAME_PATTERN, "school_name",
+        path,
+        FILENAME_PATTERN,
+        "school_name",
         "Résultats de l_admissibilité pour le {{school_name}} de PC...xlsx",
     )
 
@@ -126,19 +124,23 @@ def validate_and_read_file(path: Path):
 
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        name_columns_error = excel_utils.validate_name_columns(
+            row_idx, last_name, first_name, path.name
+        )
         if name_columns_error:
             errors.append(name_columns_error)
             continue
 
-        data_rows.append((
-            row_idx,
-            str(last_name).strip(),
-            str(first_name).strip(),
-            written_status,
-            written_points,
-            written_average,
-        ))
+        data_rows.append(
+            (
+                row_idx,
+                str(last_name).strip(),
+                str(first_name).strip(),
+                written_status,
+                written_points,
+                written_average,
+            )
+        )
 
     if errors:
         return school_name, None, errors
@@ -179,35 +181,61 @@ def import_written_admission_scores(year: int) -> None:
             rows_skipped_blank = 0
 
             for path, school_name, data_rows in parsed:
-                school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+                school_id = db_utils.find_school_by_name(
+                    conn, school_name, school_cache
+                )
                 if school_id is None:
                     school_not_found_warnings.append(
                         f"{path.name}: no school found matching {school_name!r}. File skipped."
                     )
                     continue
 
-                for row_idx, last_name, first_name, written_status, written_points, written_average in data_rows:
-                    if written_status is None and written_points is None and written_average is None:
+                for (
+                    row_idx,
+                    last_name,
+                    first_name,
+                    written_status,
+                    written_points,
+                    written_average,
+                ) in data_rows:
+                    if (
+                        written_status is None
+                        and written_points is None
+                        and written_average is None
+                    ):
                         rows_skipped_blank += 1
                         continue
 
-                    student_id, created = db_utils.get_or_create_student(conn, first_name, last_name)
+                    student_id, created = db_utils.get_or_create_student(
+                        conn, first_name, last_name
+                    )
                     if created:
                         students_created += 1
                     else:
                         students_skipped += 1
 
-                    classroom_student_id, created = db_utils.get_or_create_classroom_student(
-                        conn, classroom_id, student_id
+                    classroom_student_id, created = (
+                        db_utils.get_or_create_classroom_student(
+                            conn, classroom_id, student_id
+                        )
                     )
                     if created:
                         classroom_students_created += 1
                     else:
                         classroom_students_skipped += 1
 
-                    written_status_value = str(written_status).strip() if written_status is not None else None
+                    written_status_value = (
+                        str(written_status).strip()
+                        if written_status is not None
+                        else None
+                    )
                     _, created = db_utils.upsert_admission_written_result(
-                        conn, classroom_student_id, school_id, written_status_value, written_points, written_average
+                        conn,
+                        classroom_student_id,
+                        school_id,
+                        written_status_value,
+                        written_points,
+                        written_average,
                     )
                     if created:
                         admissions_created += 1

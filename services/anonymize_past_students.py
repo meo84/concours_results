@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 anonymize_past_students.py
 
@@ -16,9 +15,9 @@ Can also be imported and called as:
 """
 
 import argparse
-from services import db_utils
 import sqlite3
-from pathlib import Path
+
+from services import db_utils
 
 
 def _find_students_to_anonymize(conn, before):

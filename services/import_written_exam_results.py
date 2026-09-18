@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Import exams and exam results from ./input/ecrits/notes_par_concours/ into
 concours_results.db.
@@ -44,13 +43,10 @@ Usage:
 
 import argparse
 import re
-import unicodedata
 from pathlib import Path
 
-import openpyxl
-
-from services import db_utils, excel_utils
 from config import WRITTEN_EXAM_RESULTS_PATH
+from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 FORMAT = "written"
@@ -71,7 +67,9 @@ def validate_and_read_file(path: Path):
     errors = []
 
     bank_name, error = excel_utils.validate_filename(
-        path, FILENAME_PATTERN, "bank_name",
+        path,
+        FILENAME_PATTERN,
+        "bank_name",
         "Résultats de la classe PC-PC pour la Banque {{bank_name}} PC...xlsx",
     )
 
@@ -105,12 +103,16 @@ def validate_and_read_file(path: Path):
         first_name = row[2] if len(row) > 2 else None
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        name_columns_error = excel_utils.validate_name_columns(
+            row_idx, last_name, first_name, path.name
+        )
         if name_columns_error:
             errors.append(name_columns_error)
             continue
-        points = list(row[3:3 + n_exams]) + [None] * max(0, n_exams - len(row[3:]))
-        data_rows.append((row_idx, str(last_name).strip(), str(first_name).strip(), points))
+        points = list(row[3 : 3 + n_exams]) + [None] * max(0, n_exams - len(row[3:]))
+        data_rows.append(
+            (row_idx, str(last_name).strip(), str(first_name).strip(), points)
+        )
 
     if errors:
         return bank_name, exam_names, None, errors
@@ -162,23 +164,31 @@ def import_written_exam_results(year: int) -> None:
 
                 exam_ids = []
                 for exam_name in exam_names:
-                    exam_id, created = db_utils.get_or_create_exam(conn, exam_name, bank_id, FORMAT, exam_cache)
+                    exam_id, created = db_utils.get_or_create_exam(
+                        conn, exam_name, bank_id, FORMAT, exam_cache
+                    )
                     exam_ids.append(exam_id)
                     if created:
                         exams_created += 1
-                        print(f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})")
+                        print(
+                            f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})"
+                        )
                     else:
                         exams_skipped += 1
 
                 for row_idx, last_name, first_name, points_row in data_rows:
-                    student_id, created = db_utils.get_or_create_student(conn, first_name, last_name)
+                    student_id, created = db_utils.get_or_create_student(
+                        conn, first_name, last_name
+                    )
                     if created:
                         students_created += 1
                     else:
                         students_skipped += 1
 
-                    classroom_student_id, created = db_utils.get_or_create_classroom_student(
-                        conn, classroom_id, student_id
+                    classroom_student_id, created = (
+                        db_utils.get_or_create_classroom_student(
+                            conn, classroom_id, student_id
+                        )
                     )
                     if created:
                         classroom_students_created += 1

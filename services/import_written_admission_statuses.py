@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Import written admission statuses from ./input/ecrits/statuts_par_concours/
 into concours_results.db.
@@ -42,13 +41,10 @@ Usage:
 """
 
 import re
-import unicodedata
 from pathlib import Path
 
-import openpyxl
-
-from services import db_utils, excel_utils
 from config import WRITTEN_STATUSES_PER_BANK_PATH
+from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 
@@ -56,6 +52,7 @@ FILENAME_PATTERN = re.compile(
     r"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+PC-PC\s+pour\s+la\s+banque\s+"
     r"Banque\s+(?P<bank_name>.+)\s+PC(?P<suffix>.*)\.xlsx$"
 )
+
 
 def validate_and_read_file(path: Path):
     """Return (bank_name, school_names, data_rows, errors).
@@ -65,7 +62,9 @@ def validate_and_read_file(path: Path):
     On any format error, returns (bank_name_or_None, None, None, errors).
     """
     bank_name, error = excel_utils.validate_filename(
-        path, FILENAME_PATTERN, "bank_name",
+        path,
+        FILENAME_PATTERN,
+        "bank_name",
         "Status pour l_admissibilité de la classe PC-PC pour la banque Banque {bank_name} PC...xlsx",
     )
 
@@ -98,12 +97,18 @@ def validate_and_read_file(path: Path):
         first_name = row[2] if len(row) > 2 else None
         if last_name is None and first_name is None:
             continue  # skip fully blank rows
-        name_columns_error = excel_utils.validate_name_columns(row_idx, last_name, first_name, path.name)
+        name_columns_error = excel_utils.validate_name_columns(
+            row_idx, last_name, first_name, path.name
+        )
         if name_columns_error:
             errors.append(name_columns_error)
             continue
-        written_status = list(row[3:3 + n_schools]) + [None] * max(0, n_schools - len(row[3:]))
-        data_rows.append((row_idx, str(last_name).strip(), str(first_name).strip(), written_status))
+        written_status = list(row[3 : 3 + n_schools]) + [None] * max(
+            0, n_schools - len(row[3:])
+        )
+        data_rows.append(
+            (row_idx, str(last_name).strip(), str(first_name).strip(), written_status)
+        )
 
     if errors:
         return bank_name, school_names, None, errors
@@ -146,41 +151,56 @@ def import_written_admission_statuses(year: int) -> None:
             admissions_skipped = 0
 
             for path, bank_name, school_names, data_rows in parsed:
-                bank_id, created = db_utils.get_or_create_bank(conn, bank_name, bank_cache)
+                bank_id, created = db_utils.get_or_create_bank(
+                    conn, bank_name, bank_cache
+                )
                 if created:
                     banks_created += 1
                     print(f"Created bank: {bank_name!r} (id={bank_id})")
 
                 school_ids = []
                 for school_name in school_names:
-                    school_id, created = db_utils.get_or_create_school(conn, school_name, bank_id, school_cache)
+                    school_id, created = db_utils.get_or_create_school(
+                        conn, school_name, bank_id, school_cache
+                    )
                     school_ids.append(school_id)
                     if created:
                         schools_created += 1
-                        print(f"  Created school: {school_name!r} (id={school_id}, bank_id={bank_id})")
+                        print(
+                            f"  Created school: {school_name!r} (id={school_id}, bank_id={bank_id})"
+                        )
                     else:
                         schools_skipped += 1
 
                 for row_idx, last_name, first_name, written_statuses_row in data_rows:
-                    student_id, created = db_utils.get_or_create_student(conn, first_name, last_name)
+                    student_id, created = db_utils.get_or_create_student(
+                        conn, first_name, last_name
+                    )
                     if created:
                         students_created += 1
                     else:
                         students_skipped += 1
 
-                    classroom_student_id, created = db_utils.get_or_create_classroom_student(
-                        conn, classroom_id, student_id
+                    classroom_student_id, created = (
+                        db_utils.get_or_create_classroom_student(
+                            conn, classroom_id, student_id
+                        )
                     )
                     if created:
                         classroom_students_created += 1
                     else:
                         classroom_students_skipped += 1
 
-                    for school_id, written_status in zip(school_ids, written_statuses_row):
+                    for school_id, written_status in zip(
+                        school_ids, written_statuses_row
+                    ):
                         if written_status is None:
                             continue  # no written_status for this student/school
                         _, created = db_utils.get_or_create_admission(
-                            conn, classroom_student_id, school_id, written_status=written_status
+                            conn,
+                            classroom_student_id,
+                            school_id,
+                            written_status=written_status,
                         )
                         if created:
                             admissions_created += 1
