@@ -13,7 +13,6 @@ from config import (
 )
 from db.init_db import init_db
 from services import excel_utils
-from services.anonymize_past_students import anonymize_past_students
 from services.import_classroom_students import import_classroom_students
 from services.import_oral_admission_statuses import import_oral_admission_statuses
 from services.import_oral_exam_results_and_admissions import (
@@ -95,7 +94,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     init_db()
-    anonymize_past_students(before=year)
     summarize_written_results(year)
 
     try:
