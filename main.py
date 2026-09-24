@@ -6,7 +6,6 @@ import openpyxl
 from config import (
     ORAL_ADMISSIONS_PER_SCHOOL_PATH,
     ORAL_STATUSES_PER_BANK_PATH,
-    STUDENTS_PATH,
     WRITTEN_ADMISSIONS_PER_SCHOOL_PATH,
     WRITTEN_EXAM_RESULTS_PATH,
     WRITTEN_STATUSES_PER_BANK_PATH,
@@ -24,50 +23,14 @@ from services.import_written_exam_results import import_written_exam_results
 from services.summarize_results import summarize_results
 
 
-def validate_classroom_year(path: Path) -> int:
-    """Return year given on the tab of the file.
-
-    Raises FileNotFoundError if the file is missing, ValueError if the
-    format is invalid (with every issue found listed in the message).
-    """
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Missing input file: {path}. Please place the students file there."
-        )
-
-    wb = openpyxl.load_workbook(path, data_only=True)
-
-    errors = []
-
-    if len(wb.sheetnames) != 1:
-        errors.append(
-            f"Expected a single sheet, found {len(wb.sheetnames)}: {wb.sheetnames}"
-        )
-
-    sheet_name = wb.sheetnames[0] if wb.sheetnames else None
-    year = None
-    if sheet_name is not None:
-        try:
-            year = int(str(sheet_name).strip())
-        except ValueError:
-            errors.append(
-                f"Sheet name '{sheet_name}' is not a valid year (expected e.g. '2025')."
-            )
-
-    if errors:
-        raise ValueError("Invalid input file format:\n- " + "\n- ".join(errors))
-
-    return year
-
-
 def validate_written_inputs() -> None:
     excel_utils.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
     excel_utils.discover_files(WRITTEN_EXAM_RESULTS_PATH)
     excel_utils.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
 
 
-def summarize_written_results(year: int) -> None:
-    import_classroom_students(year)
+def summarize_written_results(year: int, students_path: Path) -> None:
+    import_classroom_students(year, students_path)
     import_written_admission_statuses(year)
     import_written_exam_results(year)
     import_written_admission_scores(year)
@@ -87,14 +50,14 @@ def summarize_oral_results(year: int) -> None:
 
 if __name__ == "__main__":
     try:
-        year = validate_classroom_year(STUDENTS_PATH)
+        year, students_path = excel_utils.validate_students_input()
         validate_written_inputs()
     except FileNotFoundError as e:
         print(f"Written inputs are invalid: {e}")
         sys.exit(1)
 
     init_db()
-    summarize_written_results(year)
+    summarize_written_results(year, students_path)
 
     try:
         validate_oral_inputs()

@@ -4,6 +4,45 @@ from pathlib import Path
 
 import openpyxl
 
+from config import INPUT_PATH
+
+
+STUDENT_FILE_RE = re.compile(r"^students_(\d{4})\.xlsx$")
+
+
+def validate_students_input() -> tuple[int, Path]:
+    """
+    Look for files named 'students_{year}.xlsx' in the inputs directory.
+    Returns (year, path). Prompts the user if more than one is found.
+    """
+    matches = {}
+    for f in sorted(INPUT_PATH.glob("students_*.xlsx")):
+        m = STUDENT_FILE_RE.match(f.name)
+        if m:
+            year = int(m.group(1))
+            matches[year] = f
+
+    if not matches:
+        raise FileNotFoundError(
+            f"No 'students_{{year}}.xlsx' file found in '{INPUT_PATH}'."
+        )
+
+    if len(matches) == 1:
+        [(year, students_path)] = matches.items()
+        return year, students_path
+
+    print("Multiple student files found:")
+    for year in matches:
+        print(f"  - {year}")
+    choice = input("Type the year to use: ").strip()
+
+    while not choice.isdigit() or int(choice) not in matches:
+        choice = input("Not a valid year, try again: ").strip()
+
+    year = int(choice)
+    students_path = matches[year]
+    return year, students_path
+
 
 def discover_files(folder: Path) -> list:
     if not folder.exists() or not folder.is_dir():

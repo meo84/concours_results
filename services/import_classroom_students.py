@@ -1,5 +1,5 @@
 """
-Import students from ./input/students.xlsx into concours_results.db.
+Import students from xlsx input into concours_results.db.
 
 Expected file format:
     - Exactly one sheet
@@ -19,7 +19,7 @@ Behavior:
           combination
 
 Usage:
-    python -m services.import_classroom_students 2026
+    python -m services.import_classroom_students 2026 input/students_2026.xlsx
 """
 
 import argparse
@@ -27,25 +27,24 @@ from pathlib import Path
 
 import openpyxl
 
-from config import STUDENTS_PATH
 from services import db_utils
 
 EXPECTED_HEADERS = ["Nom", "Prénom", "Redoublant"]
 BRANCH = "PC"
 
 
-def load_and_validate(path: Path):
+def load_and_validate(year, students_path):
     """Return rows where rows is a list of (last_name, first_name, repeating).
 
     Raises FileNotFoundError if the file is missing, ValueError if the
     format is invalid (with every issue found listed in the message).
     """
-    if not path.exists():
+    if not students_path.exists():
         raise FileNotFoundError(
-            f"Missing input file: {path}. Please place the students file there."
+            f"Missing input file: {students_path}. Please place the students file there."
         )
 
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = openpyxl.load_workbook(students_path, data_only=True)
 
     errors = []
 
@@ -122,9 +121,9 @@ def import_students(conn, classroom_id: int, rows: list) -> tuple:
     )
 
 
-def import_classroom_students(year: int) -> None:
-    rows = load_and_validate(STUDENTS_PATH)
-    print(f"Validated {STUDENTS_PATH}: year={year}, {len(rows)} student row(s).")
+def import_classroom_students(year: int, students_path: Path) -> None:
+    rows = load_and_validate(year, students_path)
+    print(f"Validated {students_path}: year={year}, {len(rows)} student row(s).")
 
     conn = db_utils.get_connection()
 
@@ -149,6 +148,7 @@ def import_classroom_students(year: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
+    parser.add_argument("students_path", type=Path)
 
     args = parser.parse_args()
-    import_classroom_students(args.year)
+    import_classroom_students(args.year, args.students_path)
