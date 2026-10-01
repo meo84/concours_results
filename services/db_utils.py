@@ -10,6 +10,7 @@ import sqlite3
 import unicodedata
 
 from config import DB_PATH
+from models.classroom import Branch
 
 
 def get_connection() -> sqlite3.Connection:
@@ -119,16 +120,20 @@ def eligible_student_counts_by_school(
     return dict(cursor.fetchall())
 
 
-def get_classroom_id_by_year(conn: sqlite3.Connection, year: int) -> int:
+def get_classroom_id_by_year(
+    conn: sqlite3.Connection, year: int, branch: str = Branch.PC
+) -> int:
     """Look up an existing classroom by year. Does NOT create one.
 
     Classrooms are created by import_classroom_students.py; this raises a
     clear error if that step hasn't been run yet for this year.
     """
-    row = conn.execute("SELECT id FROM classrooms WHERE year = ?;", (year,)).fetchone()
+    row = conn.execute(
+        "SELECT id FROM classrooms WHERE year = ? AND branch = ?;", (year, branch)
+    ).fetchone()
     if not row:
         raise ValueError(
-            f"No classroom found for year {year}. Run import_classroom_students.py first."
+            f"No classroom found for year {year} and branch {branch}. Run import_classroom_students.py first."
         )
     return row["id"]
 

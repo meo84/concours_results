@@ -47,10 +47,11 @@ CREATE TABLE IF NOT EXISTS schools (
 
 CREATE TABLE IF NOT EXISTS classrooms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    year       INTEGER NOT NULL UNIQUE,
-    branch     TEXT,
+    year       INTEGER NOT NULL,
+    branch     TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (year, branch)
 );
 
 CREATE TABLE IF NOT EXISTS students (
