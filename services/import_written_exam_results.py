@@ -38,7 +38,7 @@ Behavior:
           Blank cells are skipped (no exam_results record created).
 
 Usage:
-    python -m services.import_written_exam_results 2026
+    python -m services.import_written_exam_results 2026 --branch PC
 """
 
 import argparse
@@ -46,41 +46,27 @@ import re
 from pathlib import Path
 
 from config import WRITTEN_EXAM_RESULTS_PATH
+from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 FORMAT = "written"
 
-FILENAME_PATTERN = re.compile(
-    r"^Résultats\s+de\s+la\s+classe\s+PC-PC\s+pour\s+la\s+Banque\s+"
-    r"(?P<bank_name>.+)\s+PC(?P<suffix>.*)\.xlsx$"
-)
-
 
 def validate_and_read_file(path: Path):
-    """Return (bank_name, exam_names, data_rows, errors).
+    """Return (exam_names, data_rows, errors).
 
     data_rows is a list of (row_idx, last_name, first_name, points) where
     points is a list aligned with exam_names (None for a blank cell).
-    On any format error, returns (bank_name_or_None, None, None, errors).
+    On any format error, returns (None, None, errors).
     """
     errors = []
-
-    bank_name, error = excel_utils.validate_filename(
-        path,
-        FILENAME_PATTERN,
-        "bank_name",
-        "Résultats de la classe PC-PC pour la Banque {{bank_name}} PC...xlsx",
-    )
-
-    if error:
-        return None, None, None, [error]
 
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return bank_name, None, None, [empty_file_error]
+        return None, None, [empty_file_error]
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
@@ -89,12 +75,12 @@ def validate_and_read_file(path: Path):
             f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
             f"found {normalized_headers[:3]}."
         )
-        return bank_name, None, None, errors
+        return None, None, errors
 
     exam_names = [h for h in normalized_headers[3:] if h]
     if not exam_names:
         errors.append(f"{path.name}: no exam columns found after 'Prénom'.")
-        return bank_name, None, None, errors
+        return None, None, errors
 
     n_exams = len(exam_names)
     data_rows = []
@@ -115,18 +101,18 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return bank_name, exam_names, None, errors
+        return exam_names, None, errors
 
-    return bank_name, exam_names, data_rows, errors
+    return exam_names, data_rows, errors
 
 
-def import_written_exam_results(year: int) -> None:
-    files = excel_utils.discover_files(WRITTEN_EXAM_RESULTS_PATH)
+def import_written_exam_results(year: int, branch: Branch) -> None:
+    files = excel_utils.filter_files(WRITTEN_EXAM_RESULTS_PATH, branch)
 
     all_errors = []
     parsed = []  # list of (path, bank_name, exam_names, data_rows)
-    for path in files:
-        bank_name, exam_names, data_rows, errors = validate_and_read_file(path)
+    for path, bank_name in files:
+        exam_names, data_rows, errors = validate_and_read_file(path)
         if errors:
             all_errors.extend(errors)
         else:
@@ -226,6 +212,17 @@ def import_written_exam_results(year: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
+    parser.add_argument(
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+        metavar="{pc}",
+    )
 
     args = parser.parse_args()
-    import_written_exam_results(args.year)
+    branch = args.branch
+    if branch:
+        import_written_exam_results(args.year, args.branch)
+    else:
+        for branch in Branch:
+            import_written_exam_results(args.year, branch)

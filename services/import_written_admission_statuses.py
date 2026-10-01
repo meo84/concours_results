@@ -37,57 +37,43 @@ Behavior:
           is not blank (no admissions record created otherwise)
 
 Usage:
-    python -m services.import_written_admission_statuses 2026
+    python -m services.import_written_admission_statuses 2026 --branch PC
 """
 
 import re
 from pathlib import Path
 
 from config import WRITTEN_STATUSES_PER_BANK_PATH
+from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 
-FILENAME_PATTERN = re.compile(
-    r"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+PC-PC\s+pour\s+la\s+banque\s+"
-    r"Banque\s+(?P<bank_name>.+)\s+PC(?P<suffix>.*)\.xlsx$"
-)
 
-
-def validate_and_read_file(path: Path):
-    """Return (bank_name, school_names, data_rows, errors).
+def validate_and_read_file(path: Path, branch: Branch):
+    """Return (school_names, data_rows, errors).
 
     data_rows is a list of (row_idx, last_name, first_name, written_status) where
     status is a list aligned with school_names (None for a blank cell).
-    On any format error, returns (bank_name_or_None, None, None, errors).
+    On any format error, returns (None, None, errors).
     """
-    bank_name, error = excel_utils.validate_filename(
-        path,
-        FILENAME_PATTERN,
-        "bank_name",
-        "Status pour l_admissibilité de la classe PC-PC pour la banque Banque {bank_name} PC...xlsx",
-    )
-
-    if error:
-        return None, None, None, [error]
-
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return bank_name, None, None, [empty_file_error]
+        return None, None, [empty_file_error]
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < 3 or normalized_headers[:3] != EXPECTED_FIRST_HEADERS:
         error = f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
         f"found {normalized_headers[:3]}."
-        return bank_name, None, None, [error]
+        return None, None, [error]
 
     school_names = [h for h in normalized_headers[3:] if h]
     if not school_names:
         error = f"{path.name}: no school columns found after 'Prénom'."
-        return bank_name, None, None, [error]
+        return None, None, [error]
 
     errors = []
     n_schools = len(school_names)
@@ -111,18 +97,18 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return bank_name, school_names, None, errors
+        return school_names, None, errors
 
-    return bank_name, school_names, data_rows, errors
+    return school_names, data_rows, errors
 
 
-def import_written_admission_statuses(year: int) -> None:
-    files = excel_utils.discover_files(WRITTEN_STATUSES_PER_BANK_PATH)
+def import_written_admission_statuses(year: int, branch: Branch) -> None:
+    files = excel_utils.filter_files(WRITTEN_STATUSES_PER_BANK_PATH, branch)
 
     all_errors = []
     parsed = []  # list of (path, bank_name, school_names, data_rows)
-    for path in files:
-        bank_name, school_names, data_rows, errors = validate_and_read_file(path)
+    for path, bank_name in files:
+        school_names, data_rows, errors = validate_and_read_file(path, branch)
         if errors:
             all_errors.extend(errors)
         else:
@@ -135,8 +121,8 @@ def import_written_admission_statuses(year: int) -> None:
 
     try:
         with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+            print(f"Using {branch} classroom for year {year} (id={classroom_id})")
 
             bank_cache = {}
             school_cache = {}
@@ -221,4 +207,19 @@ def import_written_admission_statuses(year: int) -> None:
 
 
 if __name__ == "__main__":
-    import_written_admission_statuses()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("year", type=int)
+    parser.add_argument(
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+        metavar="{pc}",
+    )
+
+    args = parser.parse_args()
+    branch = args.branch
+    if branch:
+        import_written_admission_statuses(args.year, branch)
+    else:
+        for branch in Branch:
+            import_written_admission_statuses(args.year, branch)

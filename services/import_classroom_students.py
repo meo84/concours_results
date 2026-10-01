@@ -19,7 +19,7 @@ Behavior:
           combination
 
 Usage:
-    python -m services.import_classroom_students 2026 input/students_2026.xlsx
+    python -m services.import_classroom_students 2026 input/students_2026.xlsx --branch PC
 """
 
 import argparse
@@ -27,13 +27,16 @@ from pathlib import Path
 
 import openpyxl
 
+from enum import StrEnum
+from models.classroom import Branch
 from services import db_utils
 
 EXPECTED_HEADERS = ["Nom", "Prénom", "Redoublant"]
-BRANCH = "PC"
 
 
-def load_and_validate(year, students_path):
+def load_and_validate(
+    year: int, students_path: Path, branch: Branch
+) -> list[tuple[str, str, bool]]:
     """Return rows where rows is a list of (last_name, first_name, repeating).
 
     Raises FileNotFoundError if the file is missing, ValueError if the
@@ -48,14 +51,7 @@ def load_and_validate(year, students_path):
 
     errors = []
 
-    if len(wb.sheetnames) != 1:
-        errors.append(
-            f"Expected a single sheet, found {len(wb.sheetnames)}: {wb.sheetnames}"
-        )
-
-    sheet_name = wb.sheetnames[0] if wb.sheetnames else None
-
-    ws = wb[sheet_name] if sheet_name is not None else None
+    ws = wb[branch]
     header_row = None
     if ws is not None:
         header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
@@ -121,8 +117,8 @@ def import_students(conn, classroom_id: int, rows: list) -> tuple:
     )
 
 
-def import_classroom_students(year: int, students_path: Path) -> None:
-    rows = load_and_validate(year, students_path)
+def import_classroom_students(year: int, students_path: Path, branch: Branch) -> None:
+    rows = load_and_validate(year, students_path, branch)
     print(f"Validated {students_path}: year={year}, {len(rows)} student row(s).")
 
     conn = db_utils.get_connection()
@@ -130,9 +126,9 @@ def import_classroom_students(year: int, students_path: Path) -> None:
     try:
         with conn:
             classroom_id, _created = db_utils.get_or_create_classroom(
-                conn, year, BRANCH
+                conn, year, branch
             )
-            print(f"Classroom for year {year} ({BRANCH}): id={classroom_id}")
+            print(f"Classroom for year {year} ({branch}): id={classroom_id}")
 
             created, skipped, cs_created, cs_skipped = import_students(
                 conn, classroom_id, rows
@@ -149,6 +145,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
     parser.add_argument("students_path", type=Path)
+    parser.add_argument(
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+        metavar="{pc}",
+    )
 
     args = parser.parse_args()
-    import_classroom_students(args.year, args.students_path)
+    branch = args.branch
+    if branch:
+        import_classroom_students(args.year, args.students_path, branch)
+    else:
+        for branch in Branch:
+            import_classroom_students(args.year, args.students_path, branch)

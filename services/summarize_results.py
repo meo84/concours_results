@@ -1,17 +1,12 @@
 """
 summarize_results.py
 
-Builds "Summary.xlsx" with two tabs, "Admissions {year}" and "Notes {year}",
-summarizing admissions and exam results for the classroom of the given year,
+Builds "Summary_{branch}_{year}.xlsx" with two tabs, "Admissions" and "Notes",
+summarizing admissions and exam results for the classroom of the given year and branch(es),
 read from the concours_results SQLite database (see init_db.py).
 
 Usage:
-    python summarize_results.py 2026
-    python summarize_results.py 2026 --output Summary.xlsx
-
-Can also be imported and called as:
-    from summarize_results import summarize_results
-    summarize_results(2026)
+    python summarize_results.py 2026 --branch PC
 """
 
 import argparse
@@ -22,6 +17,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from config import OUTPUT_PATH
+from models.classroom import Branch
 from services import db_utils
 
 FONT_NAME = "Arial"
@@ -156,9 +152,9 @@ def style(cell, bold=False, italic=False, center=False, wrap=False):
 
 
 def build_admissions_sheet(
-    wb, year, students, admissions_rows, eligible_student_counts_by_school_id
+    wb, students, admissions_rows, eligible_student_counts_by_school_id
 ):
-    ws = wb.create_sheet(f"Admissions {year}")
+    ws = wb.create_sheet("Admissions")
 
     adm_by_key = {}
     schools_by_bank = {}  # bank_name -> {school_id: school_name}
@@ -303,8 +299,8 @@ def build_admissions_sheet(
 # --------------------------------------------------------------------------
 
 
-def build_notes_sheet(wb, year, students, exam_result_rows):
-    ws = wb.create_sheet(f"Notes {year}")
+def build_notes_sheet(wb, students, exam_result_rows):
+    ws = wb.create_sheet("Notes")
 
     results_by_key = {}
     exams_by_bank = {}  # bank_name -> {exam_id: (exam_name, exam_format)}
@@ -400,19 +396,19 @@ def build_notes_sheet(wb, year, students, exam_result_rows):
 # --------------------------------------------------------------------------
 
 
-def summarize_results(year, output_path=None):
+def summarize_results(year: int, branch: Branch):
     """
     Build Summary.xlsx for the given classroom year.
 
     Raises ValueError if no classroom exists for that year.
     Returns the Path to the file written.
     """
-    output_path = Path(output_path) if output_path else OUTPUT_PATH
+    output_path = OUTPUT_PATH / f"Summary_{branch}_{year}.xlsx"
 
     conn = db_utils.get_connection()
     try:
         with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
             students = get_students(conn, classroom_id)
             cs_ids = [s["classroom_student_id"] for s in students]
             admissions_rows = get_admissions(conn, cs_ids)
@@ -427,9 +423,9 @@ def summarize_results(year, output_path=None):
     wb.remove(wb.active)
 
     build_admissions_sheet(
-        wb, year, students, admissions_rows, eligible_student_counts_by_school_id
+        wb, students, admissions_rows, eligible_student_counts_by_school_id
     )
-    build_notes_sheet(wb, year, students, exam_result_rows)
+    build_notes_sheet(wb, students, exam_result_rows)
 
     wb.save(output_path)
     print(f"Summarized results into {output_path}")
@@ -438,21 +434,23 @@ def summarize_results(year, output_path=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Summarize concours results into Summary.xlsx"
+        description="Summarize concours results into xlsx summary"
     )
     parser.add_argument("year", type=int, help="Classroom year to summarize")
     parser.add_argument(
-        "--output",
-        dest="output_path",
-        default=None,
-        help="Output xlsx path (default: Summary.xlsx)",
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+        metavar="{pc}",
     )
     args = parser.parse_args()
+    branch = args.branch
 
-    try:
-        summarize_results(args.year, output_path=args.output_path)
-    except ValueError as e:
-        raise SystemExit(f"Error: {e}")
+    if branch:
+        summarize_results(args.year, branch)
+    else:
+        for branch in Branch:
+            summarize_results(args.year, branch)
 
 
 if __name__ == "__main__":

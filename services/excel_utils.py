@@ -4,13 +4,21 @@ from pathlib import Path
 
 import openpyxl
 
-from config import INPUT_PATH
+from config import (
+    INPUT_PATH,
+    WRITTEN_STATUSES_PER_BANK_PATH,
+    WRITTEN_EXAM_RESULTS_PATH,
+    WRITTEN_ADMISSIONS_PER_SCHOOL_PATH,
+    ORAL_STATUSES_PER_BANK_PATH,
+    ORAL_ADMISSIONS_PER_SCHOOL_PATH,
+)
+from models.classroom import Branch
 
 
 STUDENT_FILE_RE = re.compile(r"^students_(\d{4})\.xlsx$")
 
 
-def validate_students_input() -> tuple[int, Path]:
+def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
     """
     Look for files named 'students_{year}.xlsx' in the inputs directory.
     Returns (year, path). Prompts the user if more than one is found.
@@ -29,57 +37,69 @@ def validate_students_input() -> tuple[int, Path]:
 
     if len(matches) == 1:
         [(year, students_path)] = matches.items()
-        return year, students_path
+    else:
+        print("Multiple student files found:")
+        for year in matches:
+            print(f"  - {year}")
+        choice = input("Type the year to use: ").strip()
 
-    print("Multiple student files found:")
-    for year in matches:
-        print(f"  - {year}")
-    choice = input("Type the year to use: ").strip()
+        while not choice.isdigit() or int(choice) not in matches:
+            choice = input("Not a valid year, try again: ").strip()
 
-    while not choice.isdigit() or int(choice) not in matches:
-        choice = input("Not a valid year, try again: ").strip()
+        year = int(choice)
+        students_path = matches[year]
 
-    year = int(choice)
-    students_path = matches[year]
+    wb = openpyxl.load_workbook(students_path, data_only=True)
+
+    expected_sheets = set(branches)
+    actual_sheets = set(wb.sheetnames)
+
+    missing = expected_sheets - actual_sheets
+    unexpected = actual_sheets - expected_sheets
+
+    if missing or unexpected:
+        raise ValueError(
+            f"Invalid workbook sheets. "
+            f"Missing: {sorted(missing)}, "
+            f"Unexpected: {sorted(unexpected)}"
+        )
+
     return year, students_path
 
 
-def discover_files(folder: Path) -> list:
+def filter_files(folder: Path, branch: Branch = Branch.PC) -> list[tuple[Path, str]]:
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(
             f"Missing input folder: {folder}. Please create it and add the results files."
         )
-    files = sorted(f for f in folder.glob("*.xlsx") if not f.name.startswith("~$"))
+    expected_filename = filename_patterns(branch)[folder]
+    filename_pattern = expected_filename["pattern"]
+    group_name = expected_filename["group_name"]
+
+    files = []
+    for f in folder.iterdir():
+        if not f.is_file() or f.name.startswith("~$"):
+            continue
+
+        normalized_name = unicodedata.normalize("NFC", f.name)
+        match = filename_pattern.fullmatch(normalized_name)
+
+        if match:
+            files.append((f, match.group(group_name)))
+
     if not files:
         raise FileNotFoundError(
-            f"Input folder {folder} is empty. Please add the results files (.xlsx)."
+            f"Please add the results files to the input folder {folder}. "
+            f"Expected file names: {filename_pattern}"
         )
-    return files
+
+    return sorted(files)
 
 
 def read_xlsx_rows(path: Path) -> list[tuple]:
     """Read the first worksheet and return all rows."""
     wb = openpyxl.load_workbook(path, data_only=True)
     return list(wb.worksheets[0].iter_rows(values_only=True))
-
-
-def validate_filename(
-    path: Path,
-    pattern: re.Pattern,
-    name_group: str,
-    expected_pattern: str,
-):
-    """Return (captured_name, error)."""
-    normalized_filename = unicodedata.normalize("NFC", path.name)
-    match = pattern.match(normalized_filename)
-
-    if not match:
-        return None, (
-            f"{path.name}: filename does not match the expected pattern "
-            f"'{expected_pattern}'. (raw: {normalized_filename!r})"
-        )
-
-    return match.group(name_group).strip(), None
 
 
 def normalize_header_row(row) -> list[str | None]:
@@ -114,3 +134,48 @@ def validate_non_empty_file(rows: list[tuple], path_name: str) -> str | None:
         return f"{path_name}: file is empty"
 
     return None
+
+
+def filename_patterns(branch: Branch):
+    b = re.escape(branch)
+    return {
+        WRITTEN_STATUSES_PER_BANK_PATH: {
+            "pattern": re.compile(
+                rf"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+banque\s+"
+                rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
+            ),
+            "group_name": "bank_name",
+            "example": f"Status pour l_admissibilité de la classe {b}-{b} pour la banque Banque {{bank_name}} {b}...xlsx",
+        },
+        WRITTEN_EXAM_RESULTS_PATH: {
+            "pattern": re.compile(
+                rf"^Résultats\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+Banque\s+"
+                rf"(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
+            ),
+            "group_name": "bank_name",
+            "example": f"Résultats de la classe {b}-{b} pour la Banque {{bank_name}} {b}...xlsx",
+        },
+        WRITTEN_ADMISSIONS_PER_SCHOOL_PATH: {
+            "pattern": re.compile(
+                rf"^R[eé]sultats\s+de\s+l_admissibilit[eé]\s+pour\s+le\s+(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
+            ),
+            "group_name": "school_name",
+            "example": f"Résultats de l_admissibilité pour le {{school_name}} de {b}...xlsx",
+        },
+        ORAL_STATUSES_PER_BANK_PATH: {
+            "pattern": re.compile(
+                rf"^Statuts\s+pour\s+l_admission\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+banque\s+"
+                rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
+            ),
+            "group_name": "bank_name",
+            "example": f"Status pour l_admission de la classe {b}-{b} pour la banque Banque {{bank_name}} {b}...xlsx",
+        },
+        ORAL_ADMISSIONS_PER_SCHOOL_PATH: {
+            "pattern": re.compile(
+                rf"^R[eé]sultats\s+de\s+l_admission\s+pour\s+le\s+"
+                rf"(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
+            ),
+            "group_name": "school_name",
+            "example": f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx",
+        }
+    }

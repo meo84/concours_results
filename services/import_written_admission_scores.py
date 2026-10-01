@@ -43,7 +43,7 @@ Behavior:
           are skipped entirely (no admissions record created).
 
 Usage:
-    python -m services.import_written_admission_scores 2026
+    python -m services.import_written_admission_scores 2026 --branch PC
 """
 
 import argparse
@@ -51,40 +51,26 @@ import re
 from pathlib import Path
 
 from config import WRITTEN_ADMISSIONS_PER_SCHOOL_PATH
+from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_STRICT_HEADERS = ["Numéro", "Nom", "Prénom", "Statut"]
 EXPECTED_LOOSE_HEADERS = ["Total écrit", "Moyenne"]
 
-FILENAME_PATTERN = re.compile(
-    r"^R[eé]sultats\s+de\s+l_admissibilit[eé]\s+pour\s+le\s+(?P<school_name>.+)\s+de\s+PC(?P<suffix>.*)\.xlsx$"
-)
-
 
 def validate_and_read_file(path: Path):
-    """Return (school_name, data_rows, errors).
+    """Return (data_rows, errors).
 
     data_rows is a list of (row_idx, last_name, first_name, written_status,
     written_points, written_average). On any format error, returns
-    (school_name_or_None, None, errors).
+    (None, errors).
     """
     errors = []
-
-    school_name, error = excel_utils.validate_filename(
-        path,
-        FILENAME_PATTERN,
-        "school_name",
-        "Résultats de l_admissibilité pour le {{school_name}} de PC...xlsx",
-    )
-
-    if error:
-        return None, None, [error]
-
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return school_name, None, [empty_file_error]
+        return None, [empty_file_error]
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
@@ -94,14 +80,14 @@ def validate_and_read_file(path: Path):
             f"{path.name}: expected at least {expected_count} columns starting with "
             f"{EXPECTED_STRICT_HEADERS + EXPECTED_LOOSE_HEADERS}, found {normalized_headers}."
         )
-        return school_name, None, errors
+        return None, errors
 
     strict_actual = normalized_headers[: len(EXPECTED_STRICT_HEADERS)]
     if strict_actual != EXPECTED_STRICT_HEADERS:
         errors.append(
             f"{path.name}: expected first headers {EXPECTED_STRICT_HEADERS}, found {strict_actual}."
         )
-        return school_name, None, errors
+        return None, errors
 
     loose_start = len(EXPECTED_STRICT_HEADERS)
     loose_end = loose_start + len(EXPECTED_LOOSE_HEADERS)
@@ -112,7 +98,7 @@ def validate_and_read_file(path: Path):
                 f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
             )
     if errors:
-        return school_name, None, errors
+        return None, errors
 
     data_rows = []
     for row_idx, row in enumerate(all_rows[1:], start=2):
@@ -143,18 +129,18 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return school_name, None, errors
+        return None, errors
 
-    return school_name, data_rows, errors
+    return data_rows, errors
 
 
-def import_written_admission_scores(year: int) -> None:
-    files = excel_utils.discover_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH)
+def import_written_admission_scores(year: int, branch: Branch) -> None:
+    files = excel_utils.filter_files(WRITTEN_ADMISSIONS_PER_SCHOOL_PATH, branch)
 
     all_errors = []
     parsed = []  # list of (path, school_name, data_rows)
-    for path in files:
-        school_name, data_rows, errors = validate_and_read_file(path)
+    for path, school_name in files:
+        data_rows, errors = validate_and_read_file(path)
         if errors:
             all_errors.extend(errors)
         else:

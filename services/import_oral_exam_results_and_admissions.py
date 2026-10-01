@@ -68,7 +68,7 @@ Behavior:
               record (classroom_student_id, exam_id, points)
 
 Usage:
-    python -m services.import_oral_exam_results_and_admissions 2026
+    python -m services.import_oral_exam_results_and_admissions 2026 --branch PC
 """
 
 import argparse
@@ -76,6 +76,7 @@ import re
 from pathlib import Path
 
 from config import ORAL_ADMISSIONS_PER_SCHOOL_PATH
+from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_HEADERS = [
@@ -93,11 +94,6 @@ N_VALIDATED_COLUMNS = len(EXPECTED_HEADERS)  # 9
 
 FORMAT = "oral"
 
-FILENAME_PATTERN = re.compile(
-    r"^R[eé]sultats\s+de\s+l_admission\s+pour\s+le\s+"
-    r"(?P<school_name>.+)\s+de\s+PC(?P<suffix>.*)\.xlsx$"
-)
-
 
 def _is_effectively_empty(all_rows) -> bool:
     """True if the file has no rows, only a header row (no data rows), or
@@ -109,30 +105,20 @@ def _is_effectively_empty(all_rows) -> bool:
 
 
 def validate_and_read_file(path: Path):
-    """Return (school_name, extra_headers, data_rows, errors, is_empty).
+    """Return (extra_headers, data_rows, errors, is_empty).
 
     data_rows is a list of (row_idx, last_name, first_name, oral_status, rank,
     total, average, total_oral, extra_values) where extra_values is a list
     aligned with extra_headers (None for a blank cell). On any format
-    error, returns (school_name_or_None, None, None, errors, False).
-    A genuinely empty file returns (None, None, None, [], True).
+    error, returns (None, None, errors, False).
+    A genuinely empty file returns (None, None, [], True).
     """
     all_rows = excel_utils.read_xlsx_rows(path)
 
     if _is_effectively_empty(all_rows):
-        return None, None, None, [], True
+        return None, None, [], True
 
     errors = []
-
-    school_name, error = excel_utils.validate_filename(
-        path,
-        FILENAME_PATTERN,
-        "school_name",
-        "Résultats de l_admission pour le {{school_name}} de PC...xlsx",
-    )
-
-    if error:
-        return None, None, [error], False
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
@@ -141,7 +127,7 @@ def validate_and_read_file(path: Path):
             f"{path.name}: expected at least {N_VALIDATED_COLUMNS} columns starting with "
             f"{EXPECTED_HEADERS}, found {normalized_headers}."
         )
-        return school_name, None, None, errors, False
+        return None, None, errors, False
 
     actual_headers = normalized_headers[:N_VALIDATED_COLUMNS]
     for expected, actual in zip(EXPECTED_HEADERS, actual_headers):
@@ -150,7 +136,7 @@ def validate_and_read_file(path: Path):
                 f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
             )
     if errors:
-        return school_name, None, None, errors, False
+        return None, None, errors, False
 
     extra_headers = [h for h in normalized_headers[N_VALIDATED_COLUMNS:] if h]
     n_extra = len(extra_headers)
@@ -197,21 +183,19 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return school_name, extra_headers, None, errors, False
+        return extra_headers, None, errors, False
 
-    return school_name, extra_headers, data_rows, errors, False
+    return extra_headers, data_rows, errors, False
 
 
-def import_oral_exam_results_and_admissions(year: int) -> None:
-    files = excel_utils.discover_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH)
+def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
+    files = excel_utils.filter_files(ORAL_ADMISSIONS_PER_SCHOOL_PATH, branch)
 
     all_errors = []
     parsed = []  # list of (path, school_name, extra_headers, data_rows)
     skipped_empty = 0
-    for path in files:
-        school_name, extra_headers, data_rows, errors, is_empty = (
-            validate_and_read_file(path)
-        )
+    for path, school_name in files:
+        extra_headers, data_rows, errors, is_empty = validate_and_read_file(path)
         if is_empty:
             skipped_empty += 1
             continue
@@ -387,6 +371,17 @@ def import_oral_exam_results_and_admissions(year: int) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
+    parser.add_argument(
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+        metavar="{pc}",
+    )
 
     args = parser.parse_args()
-    import_oral_exam_results_and_admissions(args.year)
+    branch = args.branch
+    if branch:
+        import_oral_exam_results_and_admissions(args.year, branch)
+    else:
+        for branch in Branch:
+            import_oral_exam_results_and_admissions(args.year, branch)
