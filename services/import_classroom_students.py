@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Import students from ./input/students.xlsx into concours_results.db.
 
@@ -23,13 +22,13 @@ Usage:
     python -m services.import_classroom_students 2026
 """
 
+import argparse
 from pathlib import Path
 
-import argparse
 import openpyxl
-from services import db_utils
-from config import STUDENTS_PATH
 
+from config import STUDENTS_PATH
+from services import db_utils
 
 EXPECTED_HEADERS = ["Nom", "Prénom", "Redoublant"]
 BRANCH = "PC"
@@ -67,9 +66,7 @@ def load_and_validate(path: Path):
 
         normalized = [str(h).strip() if h is not None else None for h in header_row]
         if normalized != EXPECTED_HEADERS:
-            errors.append(
-                f"Expected headers {EXPECTED_HEADERS}, found {normalized}."
-            )
+            errors.append(f"Expected headers {EXPECTED_HEADERS}, found {normalized}.")
 
     if errors:
         raise ValueError("Invalid input file format:\n- " + "\n- ".join(errors))
@@ -84,7 +81,9 @@ def load_and_validate(path: Path):
                 f"Row {row_idx}: missing Nom or Prénom (Nom={last_name!r}, "
                 f"Prénom={first_name!r})."
             )
-        repeating = str(redoublant).strip().upper() == "R" if redoublant is not None else False
+        repeating = (
+            str(redoublant).strip().upper() == "R" if redoublant is not None else False
+        )
         rows.append((str(last_name).strip(), str(first_name).strip(), repeating))
 
     return rows
@@ -131,10 +130,14 @@ def import_classroom_students(year: int) -> None:
 
     try:
         with conn:
-            classroom_id, _created = db_utils.get_or_create_classroom(conn, year, BRANCH)
+            classroom_id, _created = db_utils.get_or_create_classroom(
+                conn, year, BRANCH
+            )
             print(f"Classroom for year {year} ({BRANCH}): id={classroom_id}")
 
-            created, skipped, cs_created, cs_skipped = import_students(conn, classroom_id, rows)
+            created, skipped, cs_created, cs_skipped = import_students(
+                conn, classroom_id, rows
+            )
             print(f"Students: {created} created, {skipped} already existed (skipped).")
             print(
                 f"Classroom students: {cs_created} created, {cs_skipped} already existed (skipped)."

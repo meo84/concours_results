@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Initialize the concours_results SQLite database.
 
@@ -15,7 +14,7 @@ Usage:
 """
 
 import sqlite3
-from pathlib import Path
+
 from config import DB_PATH
 
 TABLES = [
@@ -79,7 +78,8 @@ CREATE TABLE IF NOT EXISTS admissions (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     classroom_student_id  INTEGER NOT NULL,
     school_id             INTEGER NOT NULL,
-    status                TEXT,
+    written_status        TEXT,
+    oral_status           TEXT,
     rank                  INTEGER,
     average               REAL,
     written_average       REAL,
