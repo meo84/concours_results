@@ -1,16 +1,7 @@
+import argparse
 import sys
 from pathlib import Path
 
-import argparse
-import openpyxl
-
-from config import (
-    ORAL_ADMISSIONS_PER_SCHOOL_PATH,
-    ORAL_STATUSES_PER_BANK_PATH,
-    WRITTEN_ADMISSIONS_PER_SCHOOL_PATH,
-    WRITTEN_EXAM_RESULTS_PATH,
-    WRITTEN_STATUSES_PER_BANK_PATH,
-)
 from db.init_db import init_db
 from models.classroom import Branch
 from services import excel_utils

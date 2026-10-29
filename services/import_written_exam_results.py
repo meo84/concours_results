@@ -42,7 +42,6 @@ Usage:
 """
 
 import argparse
-import re
 from pathlib import Path
 
 from config import WRITTEN_EXAM_RESULTS_PATH

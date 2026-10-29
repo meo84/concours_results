@@ -10,7 +10,6 @@ Usage:
 """
 
 import argparse
-from pathlib import Path
 
 import openpyxl
 from openpyxl.styles import Alignment, Font

@@ -46,6 +46,7 @@ Usage:
     python -m services.import_oral_admission_statuses 2026 --branch PC
 """
 
+import argparse
 import re
 from pathlib import Path
 

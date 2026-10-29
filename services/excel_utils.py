@@ -6,14 +6,13 @@ import openpyxl
 
 from config import (
     INPUT_PATH,
-    WRITTEN_STATUSES_PER_BANK_PATH,
-    WRITTEN_EXAM_RESULTS_PATH,
-    WRITTEN_ADMISSIONS_PER_SCHOOL_PATH,
-    ORAL_STATUSES_PER_BANK_PATH,
     ORAL_ADMISSIONS_PER_SCHOOL_PATH,
+    ORAL_STATUSES_PER_BANK_PATH,
+    WRITTEN_ADMISSIONS_PER_SCHOOL_PATH,
+    WRITTEN_EXAM_RESULTS_PATH,
+    WRITTEN_STATUSES_PER_BANK_PATH,
 )
 from models.classroom import Branch
-
 
 STUDENT_FILE_RE = re.compile(r"^students_(\d{4})\.xlsx$")
 
@@ -177,5 +176,5 @@ def filename_patterns(branch: Branch):
             ),
             "group_name": "school_name",
             "example": f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx",
-        }
+        },
     }

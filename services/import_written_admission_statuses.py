@@ -40,7 +40,7 @@ Usage:
     python -m services.import_written_admission_statuses 2026 --branch PC
 """
 
-import re
+import argparse
 from pathlib import Path
 
 from config import WRITTEN_STATUSES_PER_BANK_PATH
