@@ -9,10 +9,11 @@ venv/
 
 # PII data
 db/concours_results.db
-input/students.xlsx
+input/students_*.xlsx
+!input/students_{year} (template).xlsx
 input/ecrits/**/*.xlsx
 input/oraux/**/*.xlsx
-output/Summary.xlsx
+output/Summary*.xlsx
 
 # Temporary files
 tmp/

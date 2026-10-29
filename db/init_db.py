@@ -10,7 +10,7 @@ updated_at is kept current via an AFTER UPDATE trigger per table rather
 than a column default (a default only fires on INSERT).
 
 Usage:
-    python init_db.py
+    python -m db.init_db.py
 """
 
 import sqlite3
@@ -47,10 +47,11 @@ CREATE TABLE IF NOT EXISTS schools (
 
 CREATE TABLE IF NOT EXISTS classrooms (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    year       INTEGER NOT NULL UNIQUE,
-    branch     TEXT,
+    year       INTEGER NOT NULL,
+    branch     TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (year, branch)
 );
 
 CREATE TABLE IF NOT EXISTS students (
