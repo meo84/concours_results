@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from config import OUTPUT_PATH
+from models.admission import ExamFormat, Status
 from models.classroom import Branch
 from services import db_utils
 
@@ -33,12 +34,7 @@ ADMISSION_ATTR_HEADERS = [
     "Moy oral",
 ]
 
-STATUS_TO_A = {"admissible"}
-STATUS_TO_NA = {"non admissible"}
-STATUS_TO_NC = {"non classé-e", "non classee", "non classée", "non classe-e"}
-STATUS_TO_RANK = {"classé-e", "classee", "classée", "classe-e"}
-
-FORMAT_LABELS = {"written": "écrit", "oral": "oral"}
+FORMAT_LABELS = {ExamFormat.WRITTEN: "écrit", ExamFormat.ORAL: "oral"}
 
 FIRST_DATA_COL = 4  # column D
 N_SUB = len(ADMISSION_ATTR_HEADERS)
@@ -122,14 +118,14 @@ def map_statuses(written_status, oral_status, rank):
 
 
 def map_status(status, rank):
-    s = status.strip().lower()
-    if s in STATUS_TO_A:
+    parsed = Status.parse(status)
+    if parsed == Status.ADMISSIBLE:
         return "A"
-    if s in STATUS_TO_NA:
+    if parsed == Status.NON_ADMISSIBLE:
         return "NA"
-    if s in STATUS_TO_NC:
+    if parsed == Status.NON_CLASSE:
         return "NC"
-    if s in STATUS_TO_RANK:
+    if parsed == Status.CLASSE:
         return rank
     return status
 

@@ -47,11 +47,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config import WRITTEN_EXAM_RESULTS_PATH
+from models.admission import ExamFormat
 from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
-FORMAT = "written"
+FORMAT = ExamFormat.WRITTEN
 
 
 @dataclass(frozen=True)

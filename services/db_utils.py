@@ -7,12 +7,13 @@ same DB-access and get-or-create logic instead of duplicating it.
 """
 
 import sqlite3
-import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 from config import DB_PATH
+from models.admission import ExamFormat
 from models.classroom import Branch
+from models.text import normalize_name
 
 
 def get_connection() -> sqlite3.Connection:
@@ -35,19 +36,6 @@ def transaction() -> Iterator[sqlite3.Connection]:
             yield conn
     finally:
         conn.close()
-
-
-def normalize_name(name: str) -> str:
-    """Lowercase, strip accents and punctuation and collapse whitespace.
-
-    Used for loose matching.
-    """
-    decomposed = unicodedata.normalize("NFKD", name.strip().lower())
-    without_accents = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    cleaned = "".join(
-        ch if ch.isalnum() or ch.isspace() else " " for ch in without_accents
-    )
-    return " ".join(cleaned.split())
 
 
 def _exact_match_get_or_create(
@@ -465,7 +453,11 @@ def get_or_create_admission(
 
 
 def get_or_create_exam(
-    conn: sqlite3.Connection, exam_name: str, bank_id: int, format_: str, cache: dict
+    conn: sqlite3.Connection,
+    exam_name: str,
+    bank_id: int,
+    format_: ExamFormat,
+    cache: dict,
 ) -> tuple:
     """Get or create an exam by name within a bank and format.
 

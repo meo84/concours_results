@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config import ORAL_STATUSES_PER_BANK_PATH
+from models.admission import Status
 from models.classroom import Branch
 from services import db_utils, excel_utils
 
@@ -226,7 +227,7 @@ def parse_admission_status(status):
     normalized = db_utils.normalize_name(status)
     match = re.match(r"^classe e (\d+)$", normalized)
     if match:
-        return "classé-e", int(match.group(1))
+        return Status.CLASSE, int(match.group(1))
     return status, None
 
 

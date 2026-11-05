@@ -77,6 +77,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config import ORAL_ADMISSIONS_PER_SCHOOL_PATH
+from models.admission import ExamFormat
 from models.classroom import Branch
 from services import db_utils, excel_utils
 
@@ -93,7 +94,7 @@ EXPECTED_HEADERS = [
 ]
 N_VALIDATED_COLUMNS = len(EXPECTED_HEADERS)  # 9
 
-FORMAT = "oral"
+FORMAT = ExamFormat.ORAL
 
 
 @dataclass(frozen=True)
