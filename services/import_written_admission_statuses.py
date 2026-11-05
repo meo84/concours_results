@@ -130,86 +130,77 @@ def import_written_admission_statuses(year: int, branch: Branch) -> None:
         else:
             parsed.append((path, bank_name, result.headers, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using {branch} classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            print(f"Using {branch} classroom for year {year} (id={classroom_id})")
+        bank_cache = {}
+        school_cache = {}
+        banks_created = 0
+        schools_created = 0
+        schools_skipped = 0
+        students_created = 0
+        students_skipped = 0
+        classroom_students_created = 0
+        classroom_students_skipped = 0
+        admissions_created = 0
+        admissions_skipped = 0
 
-            bank_cache = {}
-            school_cache = {}
-            banks_created = 0
-            schools_created = 0
-            schools_skipped = 0
-            students_created = 0
-            students_skipped = 0
-            classroom_students_created = 0
-            classroom_students_skipped = 0
-            admissions_created = 0
-            admissions_skipped = 0
+        for path, bank_name, school_names, data_rows in parsed:
+            bank_id, created = db_utils.get_or_create_bank(conn, bank_name, bank_cache)
+            if created:
+                banks_created += 1
+                print(f"Created bank: {bank_name!r} (id={bank_id})")
 
-            for path, bank_name, school_names, data_rows in parsed:
-                bank_id, created = db_utils.get_or_create_bank(
-                    conn, bank_name, bank_cache
+            school_ids = []
+            for school_name in school_names:
+                school_id, created = db_utils.get_or_create_school(
+                    conn, school_name, bank_id, school_cache
+                )
+                school_ids.append(school_id)
+                if created:
+                    schools_created += 1
+                    print(
+                        f"  Created school: {school_name!r} (id={school_id}, "
+                        f"bank_id={bank_id})"
+                    )
+                else:
+                    schools_skipped += 1
+
+            for row in data_rows:
+                student_id, created = db_utils.get_or_create_student(
+                    conn, row.first_name, row.last_name
                 )
                 if created:
-                    banks_created += 1
-                    print(f"Created bank: {bank_name!r} (id={bank_id})")
+                    students_created += 1
+                else:
+                    students_skipped += 1
 
-                school_ids = []
-                for school_name in school_names:
-                    school_id, created = db_utils.get_or_create_school(
-                        conn, school_name, bank_id, school_cache
+                classroom_student_id, created = (
+                    db_utils.get_or_create_classroom_student(
+                        conn, classroom_id, student_id
                     )
-                    school_ids.append(school_id)
-                    if created:
-                        schools_created += 1
-                        print(
-                            f"  Created school: {school_name!r} (id={school_id}, "
-                            f"bank_id={bank_id})"
-                        )
-                    else:
-                        schools_skipped += 1
+                )
+                if created:
+                    classroom_students_created += 1
+                else:
+                    classroom_students_skipped += 1
 
-                for row in data_rows:
-                    student_id, created = db_utils.get_or_create_student(
-                        conn, row.first_name, row.last_name
-                    )
-                    if created:
-                        students_created += 1
-                    else:
-                        students_skipped += 1
-
-                    classroom_student_id, created = (
-                        db_utils.get_or_create_classroom_student(
-                            conn, classroom_id, student_id
-                        )
+                for school_id, written_status in zip(school_ids, row.statuses):
+                    if written_status is None:
+                        continue  # no written_status for this student/school
+                    _, created = db_utils.get_or_create_admission(
+                        conn,
+                        classroom_student_id,
+                        school_id,
+                        written_status=written_status,
                     )
                     if created:
-                        classroom_students_created += 1
+                        admissions_created += 1
                     else:
-                        classroom_students_skipped += 1
-
-                    for school_id, written_status in zip(school_ids, row.statuses):
-                        if written_status is None:
-                            continue  # no written_status for this student/school
-                        _, created = db_utils.get_or_create_admission(
-                            conn,
-                            classroom_student_id,
-                            school_id,
-                            written_status=written_status,
-                        )
-                        if created:
-                            admissions_created += 1
-                        else:
-                            admissions_skipped += 1
-
-    finally:
-        conn.close()
+                        admissions_skipped += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"

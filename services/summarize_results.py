@@ -407,19 +407,15 @@ def summarize_results(year: int, branch: Branch):
     """
     output_path = OUTPUT_PATH / f"Summary_{branch}_{year}.xlsx"
 
-    conn = db_utils.get_connection()
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            students = get_students(conn, classroom_id)
-            cs_ids = [s["classroom_student_id"] for s in students]
-            admissions_rows = get_admissions(conn, cs_ids)
-            exam_result_rows = get_exam_results(conn, cs_ids)
-            eligible_student_counts_by_school_id = (
-                db_utils.eligible_student_counts_by_school(conn, classroom_id)
-            )
-    finally:
-        conn.close()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        students = get_students(conn, classroom_id)
+        cs_ids = [s["classroom_student_id"] for s in students]
+        admissions_rows = get_admissions(conn, cs_ids)
+        exam_result_rows = get_exam_results(conn, cs_ids)
+        eligible_student_counts_by_school_id = (
+            db_utils.eligible_student_counts_by_school(conn, classroom_id)
+        )
 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)

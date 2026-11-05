@@ -130,84 +130,75 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
         else:
             parsed.append((path, bank_name, result.headers, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+        bank_cache = {}
+        exam_cache = {}
+        bank_not_found_warnings = []
+        exams_created = 0
+        exams_skipped = 0
+        students_created = 0
+        students_skipped = 0
+        classroom_students_created = 0
+        classroom_students_skipped = 0
+        results_created = 0
+        results_skipped = 0
 
-            bank_cache = {}
-            exam_cache = {}
-            bank_not_found_warnings = []
-            exams_created = 0
-            exams_skipped = 0
-            students_created = 0
-            students_skipped = 0
-            classroom_students_created = 0
-            classroom_students_skipped = 0
-            results_created = 0
-            results_skipped = 0
+        for path, bank_name, exam_names, data_rows in parsed:
+            bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
+            if bank_id is None:
+                bank_not_found_warnings.append(
+                    f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                )
+                continue
 
-            for path, bank_name, exam_names, data_rows in parsed:
-                bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
-                if bank_id is None:
-                    bank_not_found_warnings.append(
-                        f"{path.name}: no bank found matching {bank_name!r}. File "
-                        "skipped."
+            exam_ids = []
+            for exam_name in exam_names:
+                exam_id, created = db_utils.get_or_create_exam(
+                    conn, exam_name, bank_id, FORMAT, exam_cache
+                )
+                exam_ids.append(exam_id)
+                if created:
+                    exams_created += 1
+                    print(
+                        f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})"
                     )
-                    continue
+                else:
+                    exams_skipped += 1
 
-                exam_ids = []
-                for exam_name in exam_names:
-                    exam_id, created = db_utils.get_or_create_exam(
-                        conn, exam_name, bank_id, FORMAT, exam_cache
+            for row in data_rows:
+                student_id, created = db_utils.get_or_create_student(
+                    conn, row.first_name, row.last_name
+                )
+                if created:
+                    students_created += 1
+                else:
+                    students_skipped += 1
+
+                classroom_student_id, created = (
+                    db_utils.get_or_create_classroom_student(
+                        conn, classroom_id, student_id
                     )
-                    exam_ids.append(exam_id)
+                )
+                if created:
+                    classroom_students_created += 1
+                else:
+                    classroom_students_skipped += 1
+
+                for exam_id, points in zip(exam_ids, row.points):
+                    if points is None:
+                        continue  # no result for this student/exam
+                    _, created = db_utils.get_or_create_exam_result(
+                        conn, classroom_student_id, exam_id, points
+                    )
                     if created:
-                        exams_created += 1
-                        print(
-                            f"Created exam: {exam_name!r} (id={exam_id}, "
-                            f"bank_id={bank_id})"
-                        )
+                        results_created += 1
                     else:
-                        exams_skipped += 1
-
-                for row in data_rows:
-                    student_id, created = db_utils.get_or_create_student(
-                        conn, row.first_name, row.last_name
-                    )
-                    if created:
-                        students_created += 1
-                    else:
-                        students_skipped += 1
-
-                    classroom_student_id, created = (
-                        db_utils.get_or_create_classroom_student(
-                            conn, classroom_id, student_id
-                        )
-                    )
-                    if created:
-                        classroom_students_created += 1
-                    else:
-                        classroom_students_skipped += 1
-
-                    for exam_id, points in zip(exam_ids, row.points):
-                        if points is None:
-                            continue  # no result for this student/exam
-                        _, created = db_utils.get_or_create_exam_result(
-                            conn, classroom_student_id, exam_id, points
-                        )
-                        if created:
-                            results_created += 1
-                        else:
-                            results_skipped += 1
-
-    finally:
-        conn.close()
+                        results_skipped += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"

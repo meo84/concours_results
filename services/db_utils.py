@@ -8,6 +8,8 @@ same DB-access and get-or-create logic instead of duplicating it.
 
 import sqlite3
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from config import DB_PATH
 from models.classroom import Branch
@@ -22,6 +24,17 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
+
+
+@contextmanager
+def transaction() -> Iterator[sqlite3.Connection]:
+    """Open a connection, commit on success, roll back on error, then close."""
+    conn = get_connection()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def normalize_name(name: str) -> str:

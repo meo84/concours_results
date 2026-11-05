@@ -95,6 +95,12 @@ def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
     return year, students_path
 
 
+def raise_if_errors(errors: list[str], title: str = "Invalid input format") -> None:
+    """Raise a ValueError listing every error, if there are any."""
+    if errors:
+        raise ValueError(f"{title}:\n- " + "\n- ".join(errors))
+
+
 def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(

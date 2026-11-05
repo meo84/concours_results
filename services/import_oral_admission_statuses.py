@@ -134,95 +134,87 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
         else:
             parsed.append((path, bank_name, result.headers, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+        bank_cache = {}
+        school_cache = {}
+        school_not_found_warnings = []
+        bank_not_found_warnings = []
+        row_errors = []
+        admissions_updated = 0
 
-            bank_cache = {}
-            school_cache = {}
-            school_not_found_warnings = []
-            bank_not_found_warnings = []
-            row_errors = []
-            admissions_updated = 0
+        for path, bank_name, school_names, data_rows in parsed:
+            bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
+            if bank_id is None:
+                bank_not_found_warnings.append(
+                    f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                )
+                continue
 
-            for path, bank_name, school_names, data_rows in parsed:
-                bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
-                if bank_id is None:
-                    bank_not_found_warnings.append(
-                        f"{path.name}: no bank found matching {bank_name!r}. File "
-                        "skipped."
+            school_ids = []
+            for school_name in school_names:
+                school_id = db_utils.find_school_by_name(
+                    conn, school_name, school_cache
+                )
+                if school_id is None:
+                    school_not_found_warnings.append(
+                        f"{path.name}: no school found matching {school_name!r}. "
+                        "File skipped."
                     )
                     continue
 
-                school_ids = []
-                for school_name in school_names:
-                    school_id = db_utils.find_school_by_name(
-                        conn, school_name, school_cache
-                    )
-                    if school_id is None:
-                        school_not_found_warnings.append(
-                            f"{path.name}: no school found matching {school_name!r}. "
-                            "File skipped."
-                        )
-                        continue
+                school_ids.append(school_id)
 
-                    school_ids.append(school_id)
-
-                for row in data_rows:
-                    student_id = db_utils.find_student_by_name(
-                        conn, row.first_name, row.last_name
+            for row in data_rows:
+                student_id = db_utils.find_student_by_name(
+                    conn, row.first_name, row.last_name
+                )
+                if student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no student found for "
+                        f"{row.first_name!r} {row.last_name!r}. Row skipped."
                     )
-                    if student_id is None:
+                    continue
+
+                classroom_student_id = db_utils.find_classroom_student(
+                    conn, classroom_id, student_id
+                )
+                if classroom_student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no classroom_student "
+                        "found for "
+                        f"{row.first_name!r} {row.last_name!r} in classroom "
+                        f"{classroom_id}. Row skipped."
+                    )
+                    continue
+
+                for school_id, oral_status in zip(school_ids, row.statuses):
+                    if oral_status is None:
+                        continue  # no oral_status for this student/school
+
+                    admission = db_utils.find_admission(
+                        conn, classroom_student_id, school_id
+                    )
+                    if admission is None:
                         row_errors.append(
-                            f"{path.name} row {row.row_idx}: no student found for "
-                            f"{row.first_name!r} {row.last_name!r}. Row skipped."
-                        )
-                        continue
-
-                    classroom_student_id = db_utils.find_classroom_student(
-                        conn, classroom_id, student_id
-                    )
-                    if classroom_student_id is None:
-                        row_errors.append(
-                            f"{path.name} row {row.row_idx}: no classroom_student "
+                            f"{path.name} row {row.row_idx}: no admissions record "
                             "found for "
-                            f"{row.first_name!r} {row.last_name!r} in classroom "
-                            f"{classroom_id}. Row skipped."
+                            f"{row.first_name!r} {row.last_name!r} at "
+                            f"school_id={school_id}. "
+                            f"Admissions update skipped for this row."
                         )
                         continue
 
-                    for school_id, oral_status in zip(school_ids, row.statuses):
-                        if oral_status is None:
-                            continue  # no oral_status for this student/school
-
-                        admission = db_utils.find_admission(
-                            conn, classroom_student_id, school_id
-                        )
-                        if admission is None:
-                            row_errors.append(
-                                f"{path.name} row {row.row_idx}: no admissions record "
-                                "found for "
-                                f"{row.first_name!r} {row.last_name!r} at "
-                                f"school_id={school_id}. "
-                                f"Admissions update skipped for this row."
-                            )
-                            continue
-
-                        admission_id, _ = admission
-                        oral_status, rank = parse_admission_status(oral_status)
-                        db_utils.update_admission(
-                            conn, admission_id, oral_status=oral_status, rank=rank
-                        )
-                        admissions_updated += 1
-
-    finally:
-        conn.close()
+                    admission_id, _ = admission
+                    oral_status, rank = parse_admission_status(oral_status)
+                    db_utils.update_admission(
+                        conn, admission_id, oral_status=oral_status, rank=rank
+                    )
+                    admissions_updated += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed\n"

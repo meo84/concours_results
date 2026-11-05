@@ -29,7 +29,7 @@ from pathlib import Path
 import openpyxl
 
 from models.classroom import Branch
-from services import db_utils
+from services import db_utils, excel_utils
 
 EXPECTED_HEADERS = ["Nom", "Prénom", "Redoublant"]
 
@@ -64,8 +64,7 @@ def load_and_validate(
         if normalized != EXPECTED_HEADERS:
             errors.append(f"Expected headers {EXPECTED_HEADERS}, found {normalized}.")
 
-    if errors:
-        raise ValueError("Invalid input file format:\n- " + "\n- ".join(errors))
+    excel_utils.raise_if_errors(errors, "Invalid input file format")
 
     rows = []
     for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
@@ -125,25 +124,18 @@ def import_classroom_students(year: int, students_path: Path, branch: Branch) ->
     rows = load_and_validate(year, students_path, branch)
     print(f"Validated {students_path}: year={year}, {len(rows)} student row(s).")
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id, _created = db_utils.get_or_create_classroom(conn, year, branch)
+        print(f"Classroom for year {year} ({branch}): id={classroom_id}")
 
-    try:
-        with conn:
-            classroom_id, _created = db_utils.get_or_create_classroom(
-                conn, year, branch
-            )
-            print(f"Classroom for year {year} ({branch}): id={classroom_id}")
-
-            created, skipped, cs_created, cs_skipped = import_students(
-                conn, classroom_id, rows
-            )
-            print(f"Students: {created} created, {skipped} already existed (skipped).")
-            print(
-                f"Classroom students: {cs_created} created, {cs_skipped} already "
-                "existed (skipped)."
-            )
-    finally:
-        conn.close()
+        created, skipped, cs_created, cs_skipped = import_students(
+            conn, classroom_id, rows
+        )
+        print(f"Students: {created} created, {skipped} already existed (skipped).")
+        print(
+            f"Classroom students: {cs_created} created, {cs_skipped} already "
+            "existed (skipped)."
+        )
 
 
 if __name__ == "__main__":

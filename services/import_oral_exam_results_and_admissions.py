@@ -233,131 +233,122 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
         else:
             parsed.append((path, school_name, result.headers, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+        school_cache = {}
+        exam_cache = {}
+        school_not_found_warnings = []
+        row_errors = []
+        admissions_updated = 0
+        exams_created = 0
+        exams_skipped = 0
+        results_created = 0
+        results_skipped = 0
 
-            school_cache = {}
-            exam_cache = {}
-            school_not_found_warnings = []
-            row_errors = []
-            admissions_updated = 0
-            exams_created = 0
-            exams_skipped = 0
-            results_created = 0
-            results_skipped = 0
-
-            for path, school_name, extra_headers, data_rows in parsed:
-                school_id = db_utils.find_school_by_name(
-                    conn, school_name, school_cache
+        for path, school_name, extra_headers, data_rows in parsed:
+            school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+            if school_id is None:
+                school_not_found_warnings.append(
+                    f"{path.name}: no school found matching {school_name!r}. File "
+                    "skipped."
                 )
-                if school_id is None:
-                    school_not_found_warnings.append(
-                        f"{path.name}: no school found matching {school_name!r}. File "
-                        "skipped."
+                continue
+
+            bank_id = db_utils.get_school_bank_id(conn, school_id)
+
+            # Resolve classroom_student_id per row; rows that fail are excluded
+            # from both the admissions update and the exam results creation.
+            resolved_rows: list[ResolvedOralRow] = []
+            for row in data_rows:
+                student_id = db_utils.find_student_by_name(
+                    conn, row.first_name, row.last_name
+                )
+                if student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no student found for "
+                        f"{row.first_name!r} {row.last_name!r}. Row skipped."
                     )
                     continue
 
-                bank_id = db_utils.get_school_bank_id(conn, school_id)
-
-                # Resolve classroom_student_id per row; rows that fail are excluded
-                # from both the admissions update and the exam results creation.
-                resolved_rows: list[ResolvedOralRow] = []
-                for row in data_rows:
-                    student_id = db_utils.find_student_by_name(
-                        conn, row.first_name, row.last_name
+                classroom_student_id = db_utils.find_classroom_student(
+                    conn, classroom_id, student_id
+                )
+                if classroom_student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no classroom_student "
+                        "found for "
+                        f"{row.first_name!r} {row.last_name!r} in classroom "
+                        f"{classroom_id}. Row skipped."
                     )
-                    if student_id is None:
-                        row_errors.append(
-                            f"{path.name} row {row.row_idx}: no student found for "
-                            f"{row.first_name!r} {row.last_name!r}. Row skipped."
-                        )
+                    continue
+
+                resolved_rows.append(ResolvedOralRow(row, classroom_student_id))
+
+                admission = db_utils.find_admission(
+                    conn, classroom_student_id, school_id
+                )
+                if admission is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no admissions record "
+                        "found for "
+                        f"{row.first_name!r} {row.last_name!r} at "
+                        f"school_id={school_id}. "
+                        f"Admissions update skipped for this row."
+                    )
+                    continue
+
+                admission_id, written_points = admission
+                if row.total_oral is not None:
+                    oral_points = row.total_oral
+                elif row.total is not None and written_points is not None:
+                    oral_points = row.total - written_points
+                else:
+                    oral_points = None
+
+                db_utils.update_admission(
+                    conn,
+                    admission_id,
+                    oral_status=row.oral_status,
+                    rank=row.rank,
+                    total_points=row.total,
+                    average=row.average,
+                    oral_points=oral_points,
+                )
+                admissions_updated += 1
+
+            # Per-exam-column processing.
+            for col_idx, exam_name in enumerate(extra_headers):
+                column_values = [r.row.extra_values[col_idx] for r in resolved_rows]
+                if all(v is None for v in column_values):
+                    continue  # column entirely blank across resolved rows -> skip
+
+                exam_id, created = db_utils.get_or_create_exam(
+                    conn, exam_name, bank_id, FORMAT, exam_cache
+                )
+                if created:
+                    exams_created += 1
+                    print(
+                        f"Created exam: {exam_name!r} (id={exam_id}, "
+                        f"bank_id={bank_id}, format={FORMAT})"
+                    )
+                else:
+                    exams_skipped += 1
+
+                for resolved in resolved_rows:
+                    points = resolved.row.extra_values[col_idx]
+                    if points is None:
                         continue
-
-                    classroom_student_id = db_utils.find_classroom_student(
-                        conn, classroom_id, student_id
-                    )
-                    if classroom_student_id is None:
-                        row_errors.append(
-                            f"{path.name} row {row.row_idx}: no classroom_student "
-                            "found for "
-                            f"{row.first_name!r} {row.last_name!r} in classroom "
-                            f"{classroom_id}. Row skipped."
-                        )
-                        continue
-
-                    resolved_rows.append(ResolvedOralRow(row, classroom_student_id))
-
-                    admission = db_utils.find_admission(
-                        conn, classroom_student_id, school_id
-                    )
-                    if admission is None:
-                        row_errors.append(
-                            f"{path.name} row {row.row_idx}: no admissions record "
-                            "found for "
-                            f"{row.first_name!r} {row.last_name!r} at "
-                            f"school_id={school_id}. "
-                            f"Admissions update skipped for this row."
-                        )
-                        continue
-
-                    admission_id, written_points = admission
-                    if row.total_oral is not None:
-                        oral_points = row.total_oral
-                    elif row.total is not None and written_points is not None:
-                        oral_points = row.total - written_points
-                    else:
-                        oral_points = None
-
-                    db_utils.update_admission(
-                        conn,
-                        admission_id,
-                        oral_status=row.oral_status,
-                        rank=row.rank,
-                        total_points=row.total,
-                        average=row.average,
-                        oral_points=oral_points,
-                    )
-                    admissions_updated += 1
-
-                # Per-exam-column processing.
-                for col_idx, exam_name in enumerate(extra_headers):
-                    column_values = [r.row.extra_values[col_idx] for r in resolved_rows]
-                    if all(v is None for v in column_values):
-                        continue  # column entirely blank across resolved rows -> skip
-
-                    exam_id, created = db_utils.get_or_create_exam(
-                        conn, exam_name, bank_id, FORMAT, exam_cache
+                    _, created = db_utils.get_or_create_exam_result(
+                        conn, resolved.classroom_student_id, exam_id, points
                     )
                     if created:
-                        exams_created += 1
-                        print(
-                            f"Created exam: {exam_name!r} (id={exam_id}, "
-                            f"bank_id={bank_id}, format={FORMAT})"
-                        )
+                        results_created += 1
                     else:
-                        exams_skipped += 1
-
-                    for resolved in resolved_rows:
-                        points = resolved.row.extra_values[col_idx]
-                        if points is None:
-                            continue
-                        _, created = db_utils.get_or_create_exam_result(
-                            conn, resolved.classroom_student_id, exam_id, points
-                        )
-                        if created:
-                            results_created += 1
-                        else:
-                            results_skipped += 1
-
-    finally:
-        conn.close()
+                        results_skipped += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed, {skipped_empty} empty file(s) "

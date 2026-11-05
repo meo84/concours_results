@@ -160,84 +160,75 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
         else:
             parsed.append((path, school_name, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+        school_cache = {}
+        school_not_found_warnings = []
+        students_created = 0
+        students_skipped = 0
+        classroom_students_created = 0
+        classroom_students_skipped = 0
+        admissions_created = 0
+        admissions_updated = 0
+        rows_skipped_blank = 0
 
-            school_cache = {}
-            school_not_found_warnings = []
-            students_created = 0
-            students_skipped = 0
-            classroom_students_created = 0
-            classroom_students_skipped = 0
-            admissions_created = 0
-            admissions_updated = 0
-            rows_skipped_blank = 0
-
-            for path, school_name, data_rows in parsed:
-                school_id = db_utils.find_school_by_name(
-                    conn, school_name, school_cache
+        for path, school_name, data_rows in parsed:
+            school_id = db_utils.find_school_by_name(conn, school_name, school_cache)
+            if school_id is None:
+                school_not_found_warnings.append(
+                    f"{path.name}: no school found matching {school_name!r}. File "
+                    "skipped."
                 )
-                if school_id is None:
-                    school_not_found_warnings.append(
-                        f"{path.name}: no school found matching {school_name!r}. File "
-                        "skipped."
-                    )
+                continue
+
+            for row in data_rows:
+                if (
+                    row.written_status is None
+                    and row.written_points is None
+                    and row.written_average is None
+                ):
+                    rows_skipped_blank += 1
                     continue
 
-                for row in data_rows:
-                    if (
-                        row.written_status is None
-                        and row.written_points is None
-                        and row.written_average is None
-                    ):
-                        rows_skipped_blank += 1
-                        continue
+                student_id, created = db_utils.get_or_create_student(
+                    conn, row.first_name, row.last_name
+                )
+                if created:
+                    students_created += 1
+                else:
+                    students_skipped += 1
 
-                    student_id, created = db_utils.get_or_create_student(
-                        conn, row.first_name, row.last_name
+                classroom_student_id, created = (
+                    db_utils.get_or_create_classroom_student(
+                        conn, classroom_id, student_id
                     )
-                    if created:
-                        students_created += 1
-                    else:
-                        students_skipped += 1
+                )
+                if created:
+                    classroom_students_created += 1
+                else:
+                    classroom_students_skipped += 1
 
-                    classroom_student_id, created = (
-                        db_utils.get_or_create_classroom_student(
-                            conn, classroom_id, student_id
-                        )
-                    )
-                    if created:
-                        classroom_students_created += 1
-                    else:
-                        classroom_students_skipped += 1
-
-                    written_status_value = (
-                        str(row.written_status).strip()
-                        if row.written_status is not None
-                        else None
-                    )
-                    _, created = db_utils.upsert_admission_written_result(
-                        conn,
-                        classroom_student_id,
-                        school_id,
-                        written_status_value,
-                        row.written_points,
-                        row.written_average,
-                    )
-                    if created:
-                        admissions_created += 1
-                    else:
-                        admissions_updated += 1
-
-    finally:
-        conn.close()
+                written_status_value = (
+                    str(row.written_status).strip()
+                    if row.written_status is not None
+                    else None
+                )
+                _, created = db_utils.upsert_admission_written_result(
+                    conn,
+                    classroom_student_id,
+                    school_id,
+                    written_status_value,
+                    row.written_points,
+                    row.written_average,
+                )
+                if created:
+                    admissions_created += 1
+                else:
+                    admissions_updated += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"
