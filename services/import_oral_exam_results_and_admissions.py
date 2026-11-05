@@ -7,7 +7,7 @@ Expected folder content:
     - Empty files are skipped silently (no error) — a file with no rows,
       or only a header row and no data rows, counts as empty.
     - For non-empty files, the filename follows the pattern:
-        Resultats de l_admission pour le {school_name} de PC{optional more characters}.xlsx
+        Resultats de l_admission pour le {school_name} de {branch}{optional more characters}.xlsx
       e.g. "Resultats de l_admission pour le Concours Mines-Télécom
       fonctionnaire PC de PC.xlsx"
       -> school_name = "Mines-Télécom fonctionnaire PC"
@@ -21,7 +21,7 @@ Expected folder content:
       columns (dynamic, one per oral exam). Extra columns beyond the 9 are
       allowed.
 
-Requires ./input/students.xlsx to have already been imported (via
+Requires ./input/students_{year}.xlsx to have already been imported (via
 import_classroom_students.py)
 
 Behavior:
@@ -374,7 +374,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

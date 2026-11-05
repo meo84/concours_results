@@ -5,16 +5,15 @@ into concours_results.db.
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Statuts pour l_admissibilité de la classe PC-PC pour la banque
-        Banque {bank_name} PC{optional more characters}.xlsx
+        Statuts pour l_admissibilité de la classe {branch}-{branch} pour la banque
+        Banque {bank_name} {branch}{optional more characters}.xlsx
       e.g. "Statuts pour l_admissibilité de la classe PC-PC pour la banque
       Banque CCINP _ Banque e3a - Polytech et Groupe INSA PC(2).xlsx"
       -> bank_name = "CCINP _ Banque e3a - Polytech et Groupe INSA"
     - In each file, the first 3 column headers must be: Numéro, Nom, Prénom
     - Every column header after Prénom is a school name.
-      column.
 
-Requires ./input/students.xlsx to have already been imported (via
+Requires ./input/students_{year}.xlsx to have already been imported (via
 import_classroom_students.py)
 
 Behavior:
@@ -213,7 +212,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

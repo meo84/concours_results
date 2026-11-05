@@ -5,14 +5,14 @@ concours_results.db.
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Résultats de la classe PC-PC pour la Banque {bank_name} PC{optional more characters}.xlsx
+        Résultats de la classe {branch}-{branch} pour la Banque {bank_name} {branch}{optional more characters}.xlsx
       e.g. "Résultats de la classe PC-PC pour la Banque Mines Ponts PC(1).xlsx"
       -> bank_name = "Mines Ponts"
     - In each file, the first 3 column headers must be: Numéro, Nom, Prénom
     - Every column header after Prénom is an exam name.
     - Each data row holds one student's points per exam column.
 
-Requires ./input/students.xlsx to have already been imported (via
+Requires ./input/students_{year}.xlsx to have already been imported (via
 import_classroom_students.py)
 
 Behavior:
@@ -215,7 +215,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

@@ -6,11 +6,11 @@ aux grandes écoles from a classe prépa.
 The program:
 - reads the raw results from `./input`
 - imports them into an SQLite database
-- generates a summary in `./output/Summary.xlsx`
+- generates a summary per branch in `./output/Summary_{branch}_{year}.xlsx`
 
 ## Setup
 
-Requires Python 3.10 or later (see https://www.python.org/downloads/ if not installed)
+Requires Python 3.11 or later (see https://www.python.org/downloads/ if not installed)
 
 Create and activate a virtual environment, then install the dependencies.
 
@@ -26,7 +26,7 @@ python -m pip install -e .
 
 ```bash
 py -m venv .venv
-source .venv\Scripts\activate
+.venv\Scripts\activate
 python -m pip install -e .
 ```
 
@@ -37,13 +37,25 @@ To inspect the SQLite database, you can install [DB Browser for SQLite](https://
 ### Written results
 
 When written results are published,
-- fill out `input/students_{year}.xlsx` using `students_{year} (template).xlsx` - e.g. `students_2026.xlsx`
-- download expected input files to `.input/ecrits/` and run:
+- fill out `input/students_{year}.xlsx` using `input/students_{year} (template).xlsx` - e.g. `students_2026.xlsx`
+- download expected input files to `./input/ecrits/` and run:
 ```bash
 python main.py
 ```
 
-A summary is written to `.output/Summary.xlsx`.
+A summary per branch is written to `./output/Summary_{branch}_{year}.xlsx`.
+
+### Running a single branch
+
+By default, the program runs for all branches (`PC`, `MP` and `PSI`).
+The students file must then have one sheet per branch, and the written results of every branch must be in `./input/ecrits/`.
+
+To run for one branch only:
+```bash
+python main.py --branch PC
+```
+
+The students file must then have only that branch's sheet.
 
 ### Oral results
 
@@ -53,7 +65,7 @@ add expected input files to `./input/oraux` and re-run:
 python main.py
 ```
 
-The summary is updated in `.output/Summary.xlsx`
+The summaries are updated in `./output/Summary_{branch}_{year}.xlsx`.
 
 ## Deactivating the virtual environment
 

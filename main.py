@@ -44,7 +44,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
     args = parser.parse_args()
     branch = args.branch

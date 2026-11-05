@@ -2,7 +2,7 @@
 Import students from xlsx input into concours_results.db.
 
 Expected file format:
-    - Exactly one sheet
+    - One sheet per branch, named after the branch (e.g. "PC")
     - Exactly 3 columns with headers: Nom, Prénom, Redoublant
     - One row per student. Redoublant == "R" means repeating, anything else
       (including blank) means not repeating.
@@ -11,7 +11,7 @@ Behavior:
     - Missing file -> raise FileNotFoundError naming the expected path.
     - Invalid format -> raise ValueError listing every format issue found.
     - Valid file ->
-        - create a classroom for the given year (branch "PC") if none exists yet
+        - create a classroom for the given year and branch if none exists yet
         - create a student per row (first_name, last_name) if one doesn't
           already exist for that (first_name, last_name) combination
         - create a classroom_student (classroom_id, repeating, student_id)
@@ -148,7 +148,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

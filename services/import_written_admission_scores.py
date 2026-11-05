@@ -5,7 +5,7 @@ into concours_results.db.
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Résultats de l_admissibilité pour le {school_name} PC{optional more characters}.xlsx
+        Résultats de l_admissibilité pour le {school_name} de {branch}{optional more characters}.xlsx
       e.g. "Resultats de l_admissibilité pour le Arts et Métiers de PC (2).xlsx"
       -> school_name = "Arts et Métiers"
       (the accent on the first word is tolerated either way: "Résultats" or
@@ -18,7 +18,7 @@ Expected folder content:
     - Each data row holds one student's written admission result at that
       school.
 
-Requires ./input/students.xlsx to have already been imported (via
+Requires ./input/students_{year}.xlsx to have already been imported (via
 import_classroom_students.py)
 
 Behavior:

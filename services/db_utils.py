@@ -217,8 +217,7 @@ def find_school_by_name(conn: sqlite3.Connection, school_name: str, cache: dict)
     searched across ALL schools regardless of bank (used by imports that
     don't have a bank context, e.g. per-school results files). Returns
     school_id, or None if no matching school exists. Does NOT create.
-    If multiple schools across different banks share the same loose name,
-    the first match found is returned — this isn't disambiguated further."""
+    School names are globally unique, so there is at most one match."""
     cache_key = normalize_name(school_name)
     school_id, _created = _loose_match_get_or_create(
         conn=conn, table="schools", name=school_name, cache=cache, cache_key=cache_key

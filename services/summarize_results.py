@@ -6,7 +6,7 @@ summarizing admissions and exam results for the classroom of the given year and 
 read from the concours_results SQLite database (see init_db.py).
 
 Usage:
-    python summarize_results.py 2026 --branch PC
+    python -m services.summarize_results 2026 --branch PC
 """
 
 import argparse
@@ -397,9 +397,9 @@ def build_notes_sheet(wb, students, exam_result_rows):
 
 def summarize_results(year: int, branch: Branch):
     """
-    Build Summary.xlsx for the given classroom year.
+    Build Summary_{branch}_{year}.xlsx for the given classroom year and branch.
 
-    Raises ValueError if no classroom exists for that year.
+    Raises ValueError if no classroom exists for that year and branch.
     Returns the Path to the file written.
     """
     output_path = OUTPUT_PATH / f"Summary_{branch}_{year}.xlsx"
@@ -440,7 +440,6 @@ def main():
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
     args = parser.parse_args()
     branch = args.branch
