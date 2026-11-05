@@ -19,7 +19,7 @@ Create and activate a virtual environment, then install the dependencies.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e ".[dev]"
 ```
 
 ### Windows
@@ -27,7 +27,7 @@ python -m pip install -e .
 ```bash
 py -m venv .venv
 .venv\Scripts\activate
-python -m pip install -e .
+python -m pip install -e ".[dev]"
 ```
 
 To inspect the SQLite database, you can install [DB Browser for SQLite](https://sqlitebrowser.org/dl/).

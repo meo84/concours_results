@@ -23,7 +23,7 @@ python -m services.import_written_admission_statuses 2026 --branch PC
 python -m services.summarize_results 2026 --branch PC
 ```
 
-Lint (CI runs both on pushes to `main` and on PRs):
+Lint (CI runs both on pushes to `main` and on PRs). Ruff is a dev dependency, installed with `python -m pip install -e ".[dev]"`. `pyproject.toml` enables PEP 8 (`E`, `W`), naming (`N`) and a few docstring rules on top of ruff's defaults, with an 88-character line limit:
 ```bash
 ruff check
 ruff format --check
