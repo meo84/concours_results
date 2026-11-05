@@ -45,43 +45,43 @@ class ParsedFile:
     is_empty: bool = False
 
 
-def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
-    """Validate the students workbook and return (year, path).
-
-    Looks for files named 'students_{year}.xlsx' in the inputs directory.
-    Prompts the user if more than one is found.
-    """
+def find_students_files() -> dict[int, Path]:
+    """Return the 'students_{year}.xlsx' files of the inputs directory by year."""
     matches = {}
     for f in sorted(INPUT_PATH.glob("students_*.xlsx")):
         m = STUDENT_FILE_RE.match(f.name)
         if m:
-            year = int(m.group(1))
-            matches[year] = f
+            matches[int(m.group(1))] = f
 
-    if not matches:
-        raise FileNotFoundError(
-            f"No 'students_{{year}}.xlsx' file found in '{INPUT_PATH}'."
-        )
+    return matches
 
+
+def choose_year(matches: dict[int, Path]) -> int:
+    """Return the only year of `matches`, or ask the user to pick one."""
     if len(matches) == 1:
-        [(year, students_path)] = matches.items()
-    else:
-        print("Multiple student files found:")
-        for year in matches:
-            print(f"  - {year}")
-        choice = input("Type the year to use: ").strip()
+        [year] = matches
+        return year
 
-        while not choice.isdigit() or int(choice) not in matches:
-            choice = input("Not a valid year, try again: ").strip()
+    print("Multiple student files found:")
+    for year in matches:
+        print(f"  - {year}")
+    choice = input("Type the year to use: ").strip()
 
-        year = int(choice)
-        students_path = matches[year]
+    while not choice.isdigit() or int(choice) not in matches:
+        choice = input("Not a valid year, try again: ").strip()
 
-    wb = openpyxl.load_workbook(students_path, data_only=True)
+    return int(choice)
+
+
+def validate_student_sheets(path: Path, branches: list[Branch]) -> None:
+    """Raise ValueError unless the workbook's sheets are exactly the branches."""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        actual_sheets = set(wb.sheetnames)
+    finally:
+        wb.close()
 
     expected_sheets = set(branches)
-    actual_sheets = set(wb.sheetnames)
-
     missing = expected_sheets - actual_sheets
     unexpected = actual_sheets - expected_sheets
 
@@ -92,6 +92,23 @@ def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
             f"Unexpected: {sorted(unexpected)}"
         )
 
+
+def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
+    """Validate the students workbook and return (year, path).
+
+    Looks for files named 'students_{year}.xlsx' in the inputs directory.
+    Prompts the user if more than one is found.
+    """
+    matches = find_students_files()
+    if not matches:
+        raise FileNotFoundError(
+            f"No 'students_{{year}}.xlsx' file found in '{INPUT_PATH}'."
+        )
+
+    year = choose_year(matches)
+    students_path = matches[year]
+    validate_student_sheets(students_path, branches)
+
     return year, students_path
 
 
@@ -101,15 +118,9 @@ def raise_if_errors(errors: list[str], title: str = "Invalid input format") -> N
         raise ValueError(f"{title}:\n- " + "\n- ".join(errors))
 
 
-def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
-    if not folder.exists() or not folder.is_dir():
-        raise FileNotFoundError(
-            f"Missing input folder: {folder}. Please create it and add the results "
-            "files."
-        )
+def _matching_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
+    """Return the sorted (path, name part) of the folder's files that match."""
     expected_filename = filename_patterns(branch)[folder]
-    filename_pattern = expected_filename.pattern
-    group_name = expected_filename.group_name
 
     files = []
     for f in folder.iterdir():
@@ -117,24 +128,47 @@ def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
             continue
 
         normalized_name = unicodedata.normalize("NFC", f.name)
-        match = filename_pattern.fullmatch(normalized_name)
+        match = expected_filename.pattern.fullmatch(normalized_name)
 
         if match:
-            files.append((f, match.group(group_name)))
-
-    if not files:
-        raise FileNotFoundError(
-            f"Please add the results files to the input folder {folder}. "
-            f"Expected file names: {expected_filename.example}"
-        )
+            files.append((f, match.group(expected_filename.group_name)))
 
     return sorted(files)
 
 
+def has_input_files(folder: Path, branch: Branch) -> bool:
+    """Return True if the folder exists and contains files for the branch."""
+    return folder.is_dir() and bool(_matching_files(folder, branch))
+
+
+def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
+    """Return the sorted (path, name part) of the folder's files for the branch.
+
+    Raises FileNotFoundError if the folder is missing or has no matching file.
+    """
+    if not folder.exists() or not folder.is_dir():
+        raise FileNotFoundError(
+            f"Missing input folder: {folder}. Please create it and add the results "
+            "files."
+        )
+    files = _matching_files(folder, branch)
+
+    if not files:
+        raise FileNotFoundError(
+            f"Please add the results files to the input folder {folder}. "
+            f"Expected file names: {filename_patterns(branch)[folder].example}"
+        )
+
+    return files
+
+
 def read_xlsx_rows(path: Path) -> list[tuple]:
     """Read the first worksheet and return all rows."""
-    wb = openpyxl.load_workbook(path, data_only=True)
-    return list(wb.worksheets[0].iter_rows(values_only=True))
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        return list(wb.worksheets[0].iter_rows(values_only=True))
+    finally:
+        wb.close()
 
 
 def normalize_header_row(row) -> list[str | None]:

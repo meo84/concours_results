@@ -10,10 +10,15 @@ Usage:
 """
 
 import argparse
+import sqlite3
+from pathlib import Path
 
 import openpyxl
+from openpyxl import Workbook
+from openpyxl.cell import Cell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 
 from config import OUTPUT_PATH
 from models.admission import ExamFormat, Status
@@ -47,7 +52,7 @@ NOTES_DATA_START_ROW = 9
 # --------------------------------------------------------------------------
 
 
-def get_students(conn, classroom_id):
+def get_students(conn: sqlite3.Connection, classroom_id: int) -> list[sqlite3.Row]:
     """Return all students in the classroom, ordered by last name, first name."""
     return conn.execute(
         """
@@ -64,7 +69,9 @@ def get_students(conn, classroom_id):
     ).fetchall()
 
 
-def get_admissions(conn, classroom_student_ids):
+def get_admissions(
+    conn: sqlite3.Connection, classroom_student_ids: list[int]
+) -> list[sqlite3.Row]:
     if not classroom_student_ids:
         return []
     placeholders = ",".join("?" for _ in classroom_student_ids)
@@ -85,7 +92,9 @@ def get_admissions(conn, classroom_student_ids):
     ).fetchall()
 
 
-def get_exam_results(conn, classroom_student_ids):
+def get_exam_results(
+    conn: sqlite3.Connection, classroom_student_ids: list[int]
+) -> list[sqlite3.Row]:
     if not classroom_student_ids:
         return []
     placeholders = ",".join("?" for _ in classroom_student_ids)
@@ -108,7 +117,9 @@ def get_exam_results(conn, classroom_student_ids):
 # --------------------------------------------------------------------------
 
 
-def map_statuses(written_status, oral_status, rank):
+def map_statuses(
+    written_status: str | None, oral_status: str | None, rank: int | None
+) -> str | int | None:
     if oral_status is None:
         if written_status is None:
             return None
@@ -117,7 +128,7 @@ def map_statuses(written_status, oral_status, rank):
     return map_status(oral_status, rank)
 
 
-def map_status(status, rank):
+def map_status(status: str, rank: int | None) -> str | int | None:
     parsed = Status.parse(status)
     if parsed == Status.ADMISSIBLE:
         return "A"
@@ -130,7 +141,7 @@ def map_status(status, rank):
     return status
 
 
-def repeating_label(repeating):
+def repeating_label(repeating: bool) -> str | None:
     return "R" if repeating else None
 
 
@@ -139,12 +150,36 @@ def repeating_label(repeating):
 # --------------------------------------------------------------------------
 
 
-def style(cell, bold=False, italic=False, center=False, wrap=False):
+def style(
+    cell: Cell,
+    bold: bool = False,
+    italic: bool = False,
+    center: bool = False,
+    wrap: bool = False,
+) -> None:
     cell.font = Font(name=FONT_NAME, size=FONT_SIZE, bold=bold, italic=italic)
     if center or wrap:
         cell.alignment = Alignment(
             horizontal="center", vertical="center", wrap_text=wrap
         )
+
+
+def write_stats_block(
+    ws: Worksheet, col_l: str, rng: str | None, first_row: int, center: bool
+) -> None:
+    """Write the average, standard deviation, min and max of `rng` in a column.
+
+    The four formulas go in rows first_row to first_row + 3 of column `col_l`.
+    They are skipped (cells stay blank) when `rng` is None, i.e. when there are
+    no students.
+    """
+    if rng is not None:
+        ws[f"{col_l}{first_row}"] = f'=IFERROR(AVERAGE({rng}),"")'
+        ws[f"{col_l}{first_row + 1}"] = f'=IFERROR(STDEV({rng}),"")'
+        ws[f"{col_l}{first_row + 2}"] = f'=IF(COUNT({rng})=0,"",MIN({rng}))'
+        ws[f"{col_l}{first_row + 3}"] = f'=IF(COUNT({rng})=0,"",MAX({rng}))'
+    for row_num in range(first_row, first_row + 4):
+        style(ws[f"{col_l}{row_num}"], italic=True, center=center)
 
 
 # --------------------------------------------------------------------------
@@ -153,8 +188,11 @@ def style(cell, bold=False, italic=False, center=False, wrap=False):
 
 
 def build_admissions_sheet(
-    wb, students, admissions_rows, eligible_student_counts_by_school_id
-):
+    wb: Workbook,
+    students: list[sqlite3.Row],
+    admissions_rows: list[sqlite3.Row],
+    eligible_student_counts_by_school_id: dict[int, int],
+) -> Worksheet:
     ws = wb.create_sheet("Admissions")
 
     adm_by_key = {}
@@ -238,14 +276,12 @@ def build_admissions_sheet(
         # Summary stats for the 6 numeric sub-columns (skip Statut)
         for j in range(1, N_SUB):
             col_l = get_column_letter(block_start + j)
-            if n_students > 0:
-                rng = f"{col_l}{ADMISSIONS_DATA_START_ROW}:{col_l}{data_end_row}"
-                ws[f"{col_l}7"] = f'=IFERROR(AVERAGE({rng}),"")'
-                ws[f"{col_l}8"] = f'=IFERROR(STDEV({rng}),"")'
-                ws[f"{col_l}9"] = f'=IF(COUNT({rng})=0,"",MIN({rng}))'
-                ws[f"{col_l}10"] = f'=IF(COUNT({rng})=0,"",MAX({rng}))'
-            for row_num in (7, 8, 9, 10):
-                style(ws[f"{col_l}{row_num}"], italic=True, center=True)
+            rng = (
+                f"{col_l}{ADMISSIONS_DATA_START_ROW}:{col_l}{data_end_row}"
+                if n_students > 0
+                else None
+            )
+            write_stats_block(ws, col_l, rng, 7, center=True)
 
     # Bank name row (merged across each bank's schools)
     col_cursor = FIRST_DATA_COL
@@ -299,7 +335,9 @@ def build_admissions_sheet(
 # --------------------------------------------------------------------------
 
 
-def build_notes_sheet(wb, students, exam_result_rows):
+def build_notes_sheet(
+    wb: Workbook, students: list[sqlite3.Row], exam_result_rows: list[sqlite3.Row]
+) -> Worksheet:
     ws = wb.create_sheet("Notes")
 
     results_by_key = {}
@@ -348,14 +386,13 @@ def build_notes_sheet(wb, students, exam_result_rows):
         ws[f"{col_l}3"] = exam_name
         style(ws[f"{col_l}3"], bold=True, wrap=True)
 
-        if n_students > 0:
-            rng = f"{col_l}{NOTES_DATA_START_ROW}:{col_l}{data_end_row}"
-            ws[f"{col_l}4"] = f'=IFERROR(AVERAGE({rng}),"")'
-            ws[f"{col_l}5"] = f'=IFERROR(STDEV({rng}),"")'
-            ws[f"{col_l}6"] = f'=IF(COUNT({rng})=0,"",MIN({rng}))'
-            ws[f"{col_l}7"] = f'=IF(COUNT({rng})=0,"",MAX({rng}))'
-        for row_num in (4, 5, 6, 7):
-            style(ws[f"{col_l}{row_num}"], italic=True)
+        rng = (
+            f"{col_l}{NOTES_DATA_START_ROW}:{col_l}{data_end_row}"
+            if n_students > 0
+            else None
+        )
+        write_stats_block(ws, col_l, rng, 4, center=False)
+        for row_num in range(4, 8):
             ws[f"{col_l}{row_num}"].number_format = "0.00"
 
     # Bank name row (merged across each bank's exams)
@@ -394,7 +431,7 @@ def build_notes_sheet(wb, students, exam_result_rows):
 # --------------------------------------------------------------------------
 
 
-def summarize_results(year: int, branch: Branch):
+def summarize_results(year: int, branch: Branch) -> Path:
     """
     Build Summary_{branch}_{year}.xlsx for the given classroom year and branch.
 

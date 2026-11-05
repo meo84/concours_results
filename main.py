@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from config import ORAL_ADMISSIONS_PER_SCHOOL_PATH, ORAL_STATUSES_PER_BANK_PATH
 from db.init_db import init_db
 from models.classroom import Branch
 from services import excel_utils
@@ -18,14 +19,14 @@ from services.import_written_exam_results import import_written_exam_results
 from services.summarize_results import summarize_results
 
 
-def summarize_written_results(year: int, students_path: Path, branch: Branch) -> None:
+def process_written_results(year: int, branch: Branch) -> None:
     import_written_admission_statuses(year, branch)
     import_written_exam_results(year, branch)
     import_written_admission_scores(year, branch)
     summarize_results(year, branch)
 
 
-def summarize_oral_results(year: int, branch: Branch) -> None:
+def process_oral_results(year: int, branch: Branch) -> None:
     import_oral_admission_statuses(year, branch)
     import_oral_exam_results_and_admissions(year, branch)
     summarize_results(year, branch)
@@ -33,10 +34,11 @@ def summarize_oral_results(year: int, branch: Branch) -> None:
 
 def process_results(year: int, students_path: Path, branch: Branch) -> None:
     import_classroom_students(year, students_path, branch)
-    summarize_written_results(year, students_path, branch)
-    try:
-        summarize_oral_results(year, branch)
-    except FileNotFoundError:
+    process_written_results(year, branch)
+    oral_folders = (ORAL_STATUSES_PER_BANK_PATH, ORAL_ADMISSIONS_PER_SCHOOL_PATH)
+    if all(excel_utils.has_input_files(folder, branch) for folder in oral_folders):
+        process_oral_results(year, branch)
+    else:
         print(f"No oral inputs found for {branch} {year}. Skipping oral results.")
 
 
