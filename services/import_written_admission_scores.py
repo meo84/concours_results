@@ -48,6 +48,7 @@ Usage:
 """
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from config import WRITTEN_ADMISSIONS_PER_SCHOOL_PATH
@@ -58,19 +59,29 @@ EXPECTED_STRICT_HEADERS = ["Numéro", "Nom", "Prénom", "Statut"]
 EXPECTED_LOOSE_HEADERS = ["Total écrit", "Moyenne"]
 
 
-def validate_and_read_file(path: Path):
-    """Return (data_rows, errors).
+@dataclass(frozen=True)
+class ScoreRow:
+    """A student row of a per-school written results file."""
 
-    data_rows is a list of (row_idx, last_name, first_name, written_status,
-    written_points, written_average). On any format error, returns
-    (None, errors).
+    row_idx: int
+    last_name: str
+    first_name: str
+    written_status: str | None
+    written_points: float | None
+    written_average: float | None
+
+
+def validate_and_read_file(path: Path) -> excel_utils.ParsedFile:
+    """Return a ParsedFile whose rows are ScoreRow (it has no headers).
+
+    On any format error, rows is None.
     """
     errors = []
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return None, [empty_file_error]
+        return excel_utils.ParsedFile(errors=[empty_file_error])
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
@@ -81,7 +92,7 @@ def validate_and_read_file(path: Path):
             f"{EXPECTED_STRICT_HEADERS + EXPECTED_LOOSE_HEADERS}, found "
             f"{normalized_headers}."
         )
-        return None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
     strict_actual = normalized_headers[: len(EXPECTED_STRICT_HEADERS)]
     if strict_actual != EXPECTED_STRICT_HEADERS:
@@ -89,7 +100,7 @@ def validate_and_read_file(path: Path):
             f"{path.name}: expected first headers {EXPECTED_STRICT_HEADERS}, found "
             f"{strict_actual}."
         )
-        return None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
     loose_start = len(EXPECTED_STRICT_HEADERS)
     loose_end = loose_start + len(EXPECTED_LOOSE_HEADERS)
@@ -101,7 +112,7 @@ def validate_and_read_file(path: Path):
                 f"{actual!r}."
             )
     if errors:
-        return None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
     data_rows = []
     for row_idx, row in enumerate(all_rows[1:], start=2):
@@ -121,7 +132,7 @@ def validate_and_read_file(path: Path):
             continue
 
         data_rows.append(
-            (
+            ScoreRow(
                 row_idx,
                 str(last_name).strip(),
                 str(first_name).strip(),
@@ -132,9 +143,9 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
-    return data_rows, errors
+    return excel_utils.ParsedFile(rows=data_rows)
 
 
 def import_written_admission_scores(year: int, branch: Branch) -> None:
@@ -143,11 +154,11 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
     all_errors = []
     parsed = []  # list of (path, school_name, data_rows)
     for path, school_name in files:
-        data_rows, errors = validate_and_read_file(path)
-        if errors:
-            all_errors.extend(errors)
+        result = validate_and_read_file(path)
+        if result.errors:
+            all_errors.extend(result.errors)
         else:
-            parsed.append((path, school_name, data_rows))
+            parsed.append((path, school_name, result.rows))
 
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
@@ -180,24 +191,17 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
                     )
                     continue
 
-                for (
-                    row_idx,
-                    last_name,
-                    first_name,
-                    written_status,
-                    written_points,
-                    written_average,
-                ) in data_rows:
+                for row in data_rows:
                     if (
-                        written_status is None
-                        and written_points is None
-                        and written_average is None
+                        row.written_status is None
+                        and row.written_points is None
+                        and row.written_average is None
                     ):
                         rows_skipped_blank += 1
                         continue
 
                     student_id, created = db_utils.get_or_create_student(
-                        conn, first_name, last_name
+                        conn, row.first_name, row.last_name
                     )
                     if created:
                         students_created += 1
@@ -215,8 +219,8 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
                         classroom_students_skipped += 1
 
                     written_status_value = (
-                        str(written_status).strip()
-                        if written_status is not None
+                        str(row.written_status).strip()
+                        if row.written_status is not None
                         else None
                     )
                     _, created = db_utils.upsert_admission_written_result(
@@ -224,8 +228,8 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
                         classroom_student_id,
                         school_id,
                         written_status_value,
-                        written_points,
-                        written_average,
+                        row.written_points,
+                        row.written_average,
                     )
                     if created:
                         admissions_created += 1

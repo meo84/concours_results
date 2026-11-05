@@ -2,7 +2,10 @@
 
 import re
 import unicodedata
+from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
+from typing import Any
 
 import openpyxl
 
@@ -17,6 +20,29 @@ from config import (
 from models.classroom import Branch
 
 STUDENT_FILE_RE = re.compile(r"^students_(\d{4})\.xlsx$")
+
+
+@dataclass(frozen=True)
+class FilenamePattern:
+    """How to recognize the input files of a folder and extract their name part."""
+
+    pattern: re.Pattern
+    group_name: str
+    example: str
+
+
+@dataclass(frozen=True)
+class ParsedFile:
+    """Result of validating and reading one input file.
+
+    On format errors, `errors` is non-empty and `rows` is None. An empty file
+    has `is_empty` set and neither headers, rows nor errors.
+    """
+
+    headers: list[str] | None = None
+    rows: list[Any] | None = None
+    errors: list[str] = field(default_factory=list)
+    is_empty: bool = False
 
 
 def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
@@ -76,8 +102,8 @@ def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
             "files."
         )
     expected_filename = filename_patterns(branch)[folder]
-    filename_pattern = expected_filename["pattern"]
-    group_name = expected_filename["group_name"]
+    filename_pattern = expected_filename.pattern
+    group_name = expected_filename.group_name
 
     files = []
     for f in folder.iterdir():
@@ -93,7 +119,7 @@ def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
     if not files:
         raise FileNotFoundError(
             f"Please add the results files to the input folder {folder}. "
-            f"Expected file names: {filename_pattern}"
+            f"Expected file names: {expected_filename.example}"
         )
 
     return sorted(files)
@@ -139,62 +165,62 @@ def validate_non_empty_file(rows: list[tuple], path_name: str) -> str | None:
     return None
 
 
-def filename_patterns(branch: Branch):
+@cache
+def filename_patterns(branch: Branch) -> dict[Path, FilenamePattern]:
+    """Return the expected file name pattern of each input folder for a branch."""
     b = re.escape(branch)
     return {
-        WRITTEN_STATUSES_PER_BANK_PATH: {
-            "pattern": re.compile(
+        WRITTEN_STATUSES_PER_BANK_PATH: FilenamePattern(
+            pattern=re.compile(
                 rf"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+{b}-{b}"
                 rf"\s+pour\s+la\s+banque\s+"
                 rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
-            "group_name": "bank_name",
-            "example": (
-                f"Status pour l_admissibilité de la classe {b}-{b} "
+            group_name="bank_name",
+            example=(
+                f"Statuts pour l_admissibilité de la classe {b}-{b} "
                 f"pour la banque Banque {{bank_name}} {b}...xlsx"
             ),
-        },
-        WRITTEN_EXAM_RESULTS_PATH: {
-            "pattern": re.compile(
+        ),
+        WRITTEN_EXAM_RESULTS_PATH: FilenamePattern(
+            pattern=re.compile(
                 rf"^Résultats\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+Banque\s+"
                 rf"(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
-            "group_name": "bank_name",
-            "example": (
+            group_name="bank_name",
+            example=(
                 f"Résultats de la classe {b}-{b} "
                 f"pour la Banque {{bank_name}} {b}...xlsx"
             ),
-        },
-        WRITTEN_ADMISSIONS_PER_SCHOOL_PATH: {
-            "pattern": re.compile(
+        ),
+        WRITTEN_ADMISSIONS_PER_SCHOOL_PATH: FilenamePattern(
+            pattern=re.compile(
                 rf"^R[eé]sultats\s+de\s+l_admissibilit[eé]\s+pour\s+le\s+"
                 rf"(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
-            "group_name": "school_name",
-            "example": (
+            group_name="school_name",
+            example=(
                 f"Résultats de l_admissibilité pour le {{school_name}} de {b}...xlsx"
             ),
-        },
-        ORAL_STATUSES_PER_BANK_PATH: {
-            "pattern": re.compile(
+        ),
+        ORAL_STATUSES_PER_BANK_PATH: FilenamePattern(
+            pattern=re.compile(
                 rf"^Statuts\s+pour\s+l_admission\s+de\s+la\s+classe\s+{b}-{b}"
                 rf"\s+pour\s+la\s+banque\s+"
                 rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
-            "group_name": "bank_name",
-            "example": (
-                f"Status pour l_admission de la classe {b}-{b} "
+            group_name="bank_name",
+            example=(
+                f"Statuts pour l_admission de la classe {b}-{b} "
                 f"pour la banque Banque {{bank_name}} {b}...xlsx"
             ),
-        },
-        ORAL_ADMISSIONS_PER_SCHOOL_PATH: {
-            "pattern": re.compile(
+        ),
+        ORAL_ADMISSIONS_PER_SCHOOL_PATH: FilenamePattern(
+            pattern=re.compile(
                 rf"^R[eé]sultats\s+de\s+l_admission\s+pour\s+le\s+"
                 rf"(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
-            "group_name": "school_name",
-            "example": (
-                f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx"
-            ),
-        },
+            group_name="school_name",
+            example=(f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx"),
+        ),
     }

@@ -47,6 +47,7 @@ Usage:
 
 import argparse
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from config import ORAL_STATUSES_PER_BANK_PATH
@@ -56,30 +57,41 @@ from services import db_utils, excel_utils
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 
 
-def validate_and_read_file(path: Path):
-    """Return (school_names, data_rows, errors).
+@dataclass(frozen=True)
+class OralStatusRow:
+    """A student row: one oral status cell per school column (None if blank)."""
 
-    data_rows is a list of (row_idx, last_name, first_name, oral_status) where
-    oral_status is a list aligned with school_names (None for a blank cell).
-    On any format error, returns (bank_name_or_None, None, None, errors).
+    row_idx: int
+    last_name: str
+    first_name: str
+    statuses: list
+
+
+def validate_and_read_file(path: Path) -> excel_utils.ParsedFile:
+    """Return a ParsedFile with school names as headers.
+
+    rows is a list of OralStatusRow whose statuses are aligned with the
+    school names (None for a blank cell). On any format error, rows is None.
     """
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return None, None, [empty_file_error]
+        return excel_utils.ParsedFile(errors=[empty_file_error])
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < 3 or normalized_headers[:3] != EXPECTED_FIRST_HEADERS:
-        error = f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
-        f"found {normalized_headers[:3]}."
-        return None, None, [error]
+        error = (
+            f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
+            f"found {normalized_headers[:3]}."
+        )
+        return excel_utils.ParsedFile(errors=[error])
 
     school_names = [h for h in normalized_headers[3:] if h]
     if not school_names:
         error = f"{path.name}: no school columns found after 'Prénom'."
-        return None, None, [error]
+        return excel_utils.ParsedFile(errors=[error])
 
     errors = []
     n_schools = len(school_names)
@@ -99,13 +111,15 @@ def validate_and_read_file(path: Path):
             0, n_schools - len(row[3:])
         )
         data_rows.append(
-            (row_idx, str(last_name).strip(), str(first_name).strip(), oral_status)
+            OralStatusRow(
+                row_idx, str(last_name).strip(), str(first_name).strip(), oral_status
+            )
         )
 
     if errors:
-        return None, errors
+        return excel_utils.ParsedFile(headers=school_names, errors=errors)
 
-    return school_names, data_rows, errors
+    return excel_utils.ParsedFile(headers=school_names, rows=data_rows)
 
 
 def import_oral_admission_statuses(year: int, branch: Branch) -> None:
@@ -114,11 +128,11 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
     all_errors = []
     parsed = []  # list of (path, bank_name, school_names, data_rows)
     for path, bank_name in files:
-        school_names, data_rows, errors = validate_and_read_file(path)
-        if errors:
-            all_errors.extend(errors)
+        result = validate_and_read_file(path)
+        if result.errors:
+            all_errors.extend(result.errors)
         else:
-            parsed.append((path, bank_name, school_names, data_rows))
+            parsed.append((path, bank_name, result.headers, result.rows))
 
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
@@ -160,14 +174,14 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
 
                     school_ids.append(school_id)
 
-                for row_idx, last_name, first_name, oral_statuses_row in data_rows:
+                for row in data_rows:
                     student_id = db_utils.find_student_by_name(
-                        conn, first_name, last_name
+                        conn, row.first_name, row.last_name
                     )
                     if student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no student found for "
-                            f"{first_name!r} {last_name!r}. Row skipped."
+                            f"{path.name} row {row.row_idx}: no student found for "
+                            f"{row.first_name!r} {row.last_name!r}. Row skipped."
                         )
                         continue
 
@@ -176,14 +190,14 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                     )
                     if classroom_student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no classroom_student found "
-                            "for "
-                            f"{first_name!r} {last_name!r} in classroom "
+                            f"{path.name} row {row.row_idx}: no classroom_student "
+                            "found for "
+                            f"{row.first_name!r} {row.last_name!r} in classroom "
                             f"{classroom_id}. Row skipped."
                         )
                         continue
 
-                    for school_id, oral_status in zip(school_ids, oral_statuses_row):
+                    for school_id, oral_status in zip(school_ids, row.statuses):
                         if oral_status is None:
                             continue  # no oral_status for this student/school
 
@@ -192,9 +206,9 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                         )
                         if admission is None:
                             row_errors.append(
-                                f"{path.name} row {row_idx}: no admissions record "
+                                f"{path.name} row {row.row_idx}: no admissions record "
                                 "found for "
-                                f"{first_name!r} {last_name!r} at "
+                                f"{row.first_name!r} {row.last_name!r} at "
                                 f"school_id={school_id}. "
                                 f"Admissions update skipped for this row."
                             )

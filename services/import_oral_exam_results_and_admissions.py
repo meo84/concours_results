@@ -73,6 +73,7 @@ Usage:
 """
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from config import ORAL_ADMISSIONS_PER_SCHOOL_PATH
@@ -95,6 +96,32 @@ N_VALIDATED_COLUMNS = len(EXPECTED_HEADERS)  # 9
 FORMAT = "oral"
 
 
+@dataclass(frozen=True)
+class OralRow:
+    """A student row of a per-school oral results file.
+
+    extra_values is aligned with the file's exam columns (None for a blank cell).
+    """
+
+    row_idx: int
+    last_name: str
+    first_name: str
+    oral_status: str | None
+    rank: int | None
+    total: float | None
+    average: float | None
+    total_oral: float | None
+    extra_values: list
+
+
+@dataclass(frozen=True)
+class ResolvedOralRow:
+    """An OralRow whose student is part of the classroom."""
+
+    row: OralRow
+    classroom_student_id: int
+
+
 def _is_effectively_empty(all_rows) -> bool:
     """Return True if the file has no usable content.
 
@@ -107,19 +134,16 @@ def _is_effectively_empty(all_rows) -> bool:
     return all(v is None or (isinstance(v, str) and v.strip() == "") for v in all_cells)
 
 
-def validate_and_read_file(path: Path):
-    """Return (extra_headers, data_rows, errors, is_empty).
+def validate_and_read_file(path: Path) -> excel_utils.ParsedFile:
+    """Return a ParsedFile with the exam column names as headers.
 
-    data_rows is a list of (row_idx, last_name, first_name, oral_status, rank,
-    total, average, total_oral, extra_values) where extra_values is a list
-    aligned with extra_headers (None for a blank cell). On any format
-    error, returns (None, None, errors, False).
-    A genuinely empty file returns (None, None, [], True).
+    rows is a list of OralRow whose extra_values are aligned with the headers.
+    On any format error, rows is None. A genuinely empty file has is_empty set.
     """
     all_rows = excel_utils.read_xlsx_rows(path)
 
     if _is_effectively_empty(all_rows):
-        return None, None, [], True
+        return excel_utils.ParsedFile(is_empty=True)
 
     errors = []
 
@@ -131,7 +155,7 @@ def validate_and_read_file(path: Path):
             "with "
             f"{EXPECTED_HEADERS}, found {normalized_headers}."
         )
-        return None, None, errors, False
+        return excel_utils.ParsedFile(errors=errors)
 
     actual_headers = normalized_headers[:N_VALIDATED_COLUMNS]
     for expected, actual in zip(EXPECTED_HEADERS, actual_headers):
@@ -141,7 +165,7 @@ def validate_and_read_file(path: Path):
                 f"{actual!r}."
             )
     if errors:
-        return None, None, errors, False
+        return excel_utils.ParsedFile(errors=errors)
 
     extra_headers = [h for h in normalized_headers[N_VALIDATED_COLUMNS:] if h]
     n_extra = len(extra_headers)
@@ -174,7 +198,7 @@ def validate_and_read_file(path: Path):
         extra_values += [None] * max(0, n_extra - len(extra_values))
 
         data_rows.append(
-            (
+            OralRow(
                 row_idx,
                 str(last_name).strip(),
                 str(first_name).strip(),
@@ -188,9 +212,9 @@ def validate_and_read_file(path: Path):
         )
 
     if errors:
-        return extra_headers, None, errors, False
+        return excel_utils.ParsedFile(headers=extra_headers, errors=errors)
 
-    return extra_headers, data_rows, errors, False
+    return excel_utils.ParsedFile(headers=extra_headers, rows=data_rows)
 
 
 def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
@@ -200,14 +224,14 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
     parsed = []  # list of (path, school_name, extra_headers, data_rows)
     skipped_empty = 0
     for path, school_name in files:
-        extra_headers, data_rows, errors, is_empty = validate_and_read_file(path)
-        if is_empty:
+        result = validate_and_read_file(path)
+        if result.is_empty:
             skipped_empty += 1
             continue
-        if errors:
-            all_errors.extend(errors)
+        if result.errors:
+            all_errors.extend(result.errors)
         else:
-            parsed.append((path, school_name, extra_headers, data_rows))
+            parsed.append((path, school_name, result.headers, result.rows))
 
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
@@ -244,27 +268,15 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
 
                 # Resolve classroom_student_id per row; rows that fail are excluded
                 # from both the admissions update and the exam results creation.
-                # list of (row_idx, classroom_student_id, oral_status, rank, total,
-                # average, total_oral, extra_values)
-                resolved_rows = []
-                for (
-                    row_idx,
-                    last_name,
-                    first_name,
-                    oral_status,
-                    rank,
-                    total,
-                    average,
-                    total_oral,
-                    extra_values,
-                ) in data_rows:
+                resolved_rows: list[ResolvedOralRow] = []
+                for row in data_rows:
                     student_id = db_utils.find_student_by_name(
-                        conn, first_name, last_name
+                        conn, row.first_name, row.last_name
                     )
                     if student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no student found for "
-                            f"{first_name!r} {last_name!r}. Row skipped."
+                            f"{path.name} row {row.row_idx}: no student found for "
+                            f"{row.first_name!r} {row.last_name!r}. Row skipped."
                         )
                         continue
 
@@ -273,60 +285,50 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                     )
                     if classroom_student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no classroom_student found "
-                            "for "
-                            f"{first_name!r} {last_name!r} in classroom "
+                            f"{path.name} row {row.row_idx}: no classroom_student "
+                            "found for "
+                            f"{row.first_name!r} {row.last_name!r} in classroom "
                             f"{classroom_id}. Row skipped."
                         )
                         continue
 
-                    resolved_rows.append(
-                        (
-                            row_idx,
-                            classroom_student_id,
-                            oral_status,
-                            rank,
-                            total,
-                            average,
-                            total_oral,
-                            extra_values,
-                        )
-                    )
+                    resolved_rows.append(ResolvedOralRow(row, classroom_student_id))
 
                     admission = db_utils.find_admission(
                         conn, classroom_student_id, school_id
                     )
                     if admission is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no admissions record found "
-                            "for "
-                            f"{first_name!r} {last_name!r} at school_id={school_id}. "
+                            f"{path.name} row {row.row_idx}: no admissions record "
+                            "found for "
+                            f"{row.first_name!r} {row.last_name!r} at "
+                            f"school_id={school_id}. "
                             f"Admissions update skipped for this row."
                         )
                         continue
 
                     admission_id, written_points = admission
-                    if total_oral is not None:
-                        oral_points = total_oral
-                    elif total is not None and written_points is not None:
-                        oral_points = total - written_points
+                    if row.total_oral is not None:
+                        oral_points = row.total_oral
+                    elif row.total is not None and written_points is not None:
+                        oral_points = row.total - written_points
                     else:
                         oral_points = None
 
                     db_utils.update_admission(
                         conn,
                         admission_id,
-                        oral_status=oral_status,
-                        rank=rank,
-                        total_points=total,
-                        average=average,
+                        oral_status=row.oral_status,
+                        rank=row.rank,
+                        total_points=row.total,
+                        average=row.average,
                         oral_points=oral_points,
                     )
                     admissions_updated += 1
 
                 # Per-exam-column processing.
                 for col_idx, exam_name in enumerate(extra_headers):
-                    column_values = [r[7][col_idx] for r in resolved_rows]
+                    column_values = [r.row.extra_values[col_idx] for r in resolved_rows]
                     if all(v is None for v in column_values):
                         continue  # column entirely blank across resolved rows -> skip
 
@@ -342,17 +344,12 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                     else:
                         exams_skipped += 1
 
-                    for (
-                        row_idx,
-                        classroom_student_id,
-                        *_rest,
-                        extra_values,
-                    ) in resolved_rows:
-                        points = extra_values[col_idx]
+                    for resolved in resolved_rows:
+                        points = resolved.row.extra_values[col_idx]
                         if points is None:
                             continue
                         _, created = db_utils.get_or_create_exam_result(
-                            conn, classroom_student_id, exam_id, points
+                            conn, resolved.classroom_student_id, exam_id, points
                         )
                         if created:
                             results_created += 1

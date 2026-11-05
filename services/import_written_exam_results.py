@@ -43,6 +43,7 @@ Usage:
 """
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from config import WRITTEN_EXAM_RESULTS_PATH
@@ -53,12 +54,21 @@ EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 FORMAT = "written"
 
 
-def validate_and_read_file(path: Path):
-    """Return (exam_names, data_rows, errors).
+@dataclass(frozen=True)
+class ExamResultsRow:
+    """A student row: one points cell per exam column (None if blank)."""
 
-    data_rows is a list of (row_idx, last_name, first_name, points) where
-    points is a list aligned with exam_names (None for a blank cell).
-    On any format error, returns (None, None, errors).
+    row_idx: int
+    last_name: str
+    first_name: str
+    points: list
+
+
+def validate_and_read_file(path: Path) -> excel_utils.ParsedFile:
+    """Return a ParsedFile with exam names as headers.
+
+    rows is a list of ExamResultsRow whose points are aligned with the exam
+    names (None for a blank cell). On any format error, rows is None.
     """
     errors = []
 
@@ -66,7 +76,7 @@ def validate_and_read_file(path: Path):
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return None, None, [empty_file_error]
+        return excel_utils.ParsedFile(errors=[empty_file_error])
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
@@ -75,12 +85,12 @@ def validate_and_read_file(path: Path):
             f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
             f"found {normalized_headers[:3]}."
         )
-        return None, None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
     exam_names = [h for h in normalized_headers[3:] if h]
     if not exam_names:
         errors.append(f"{path.name}: no exam columns found after 'Prénom'.")
-        return None, None, errors
+        return excel_utils.ParsedFile(errors=errors)
 
     n_exams = len(exam_names)
     data_rows = []
@@ -97,13 +107,15 @@ def validate_and_read_file(path: Path):
             continue
         points = list(row[3 : 3 + n_exams]) + [None] * max(0, n_exams - len(row[3:]))
         data_rows.append(
-            (row_idx, str(last_name).strip(), str(first_name).strip(), points)
+            ExamResultsRow(
+                row_idx, str(last_name).strip(), str(first_name).strip(), points
+            )
         )
 
     if errors:
-        return exam_names, None, errors
+        return excel_utils.ParsedFile(headers=exam_names, errors=errors)
 
-    return exam_names, data_rows, errors
+    return excel_utils.ParsedFile(headers=exam_names, rows=data_rows)
 
 
 def import_written_exam_results(year: int, branch: Branch) -> None:
@@ -112,11 +124,11 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
     all_errors = []
     parsed = []  # list of (path, bank_name, exam_names, data_rows)
     for path, bank_name in files:
-        exam_names, data_rows, errors = validate_and_read_file(path)
-        if errors:
-            all_errors.extend(errors)
+        result = validate_and_read_file(path)
+        if result.errors:
+            all_errors.extend(result.errors)
         else:
-            parsed.append((path, bank_name, exam_names, data_rows))
+            parsed.append((path, bank_name, result.headers, result.rows))
 
     if all_errors:
         raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
@@ -164,9 +176,9 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
                     else:
                         exams_skipped += 1
 
-                for row_idx, last_name, first_name, points_row in data_rows:
+                for row in data_rows:
                     student_id, created = db_utils.get_or_create_student(
-                        conn, first_name, last_name
+                        conn, row.first_name, row.last_name
                     )
                     if created:
                         students_created += 1
@@ -183,7 +195,7 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
                     else:
                         classroom_students_skipped += 1
 
-                    for exam_id, points in zip(exam_ids, points_row):
+                    for exam_id, points in zip(exam_ids, row.points):
                         if points is None:
                             continue  # no result for this student/exam
                         _, created = db_utils.get_or_create_exam_result(
