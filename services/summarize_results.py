@@ -2,8 +2,8 @@
 summarize_results.py
 
 Builds "Summary_{branch}_{year}.xlsx" with two tabs, "Admissions" and "Notes",
-summarizing admissions and exam results for the classroom of the given year and branch(es),
-read from the concours_results SQLite database (see init_db.py).
+summarizing admissions and exam results for the classroom of the given year and
+branch(es), read from the concours_results SQLite database (see init_db.py).
 
 Usage:
     python -m services.summarize_results 2026 --branch PC
@@ -40,6 +40,11 @@ STATUS_TO_RANK = {"classé-e", "classee", "classée", "classe-e"}
 
 FORMAT_LABELS = {"written": "écrit", "oral": "oral"}
 
+FIRST_DATA_COL = 4  # column D
+N_SUB = len(ADMISSION_ATTR_HEADERS)
+ADMISSIONS_DATA_START_ROW = 12
+NOTES_DATA_START_ROW = 9
+
 
 # --------------------------------------------------------------------------
 # Data access
@@ -47,7 +52,7 @@ FORMAT_LABELS = {"written": "écrit", "oral": "oral"}
 
 
 def get_students(conn, classroom_id):
-    """All students in the classroom, ordered alphabetically by last name, first name."""
+    """Return all students in the classroom, ordered by last name, first name."""
     return conn.execute(
         """
         SELECT cs.id AS classroom_student_id,
@@ -69,7 +74,8 @@ def get_admissions(conn, classroom_student_ids):
     placeholders = ",".join("?" for _ in classroom_student_ids)
     return conn.execute(
         f"""
-        SELECT a.classroom_student_id, a.written_status, a.oral_status, a.rank, a.average,
+        SELECT a.classroom_student_id, a.written_status, a.oral_status, a.rank,
+               a.average,
                a.written_average, a.oral_average, a.total_points,
                a.written_points, a.oral_points,
                sc.id AS school_id, sc.name AS school_name,
@@ -171,11 +177,8 @@ def build_admissions_sheet(
         ):
             columns.append((bank_name, school_id, school_name))
 
-    FIRST_DATA_COL = 4  # column D
-    N_SUB = len(ADMISSION_ATTR_HEADERS)
-    DATA_START_ROW = 12
     n_students = len(students)
-    data_end_row = DATA_START_ROW + n_students - 1
+    data_end_row = ADMISSIONS_DATA_START_ROW + n_students - 1
 
     # Fixed labels
     ws["A11"] = "Nom"
@@ -211,7 +214,9 @@ def build_admissions_sheet(
         for row_num in (3, 4, 5):
             ws.merge_cells(f"{start_l}{row_num}:{end_l}{row_num}")
         if n_students > 0:
-            range_ref = f"{status_l}{DATA_START_ROW}:{status_l}{data_end_row}"
+            range_ref = (
+                f"{status_l}{ADMISSIONS_DATA_START_ROW}:{status_l}{data_end_row}"
+            )
 
             inscrits_cell_ref = f"{start_l}3"
             ws[inscrits_cell_ref] = f"=COUNTA({range_ref})"
@@ -238,7 +243,7 @@ def build_admissions_sheet(
         for j in range(1, N_SUB):
             col_l = get_column_letter(block_start + j)
             if n_students > 0:
-                rng = f"{col_l}{DATA_START_ROW}:{col_l}{data_end_row}"
+                rng = f"{col_l}{ADMISSIONS_DATA_START_ROW}:{col_l}{data_end_row}"
                 ws[f"{col_l}7"] = f'=IFERROR(AVERAGE({rng}),"")'
                 ws[f"{col_l}8"] = f'=IFERROR(STDEV({rng}),"")'
                 ws[f"{col_l}9"] = f'=IF(COUNT({rng})=0,"",MIN({rng}))'
@@ -261,7 +266,7 @@ def build_admissions_sheet(
 
     # Student rows
     for i, student in enumerate(students):
-        row_num = DATA_START_ROW + i
+        row_num = ADMISSIONS_DATA_START_ROW + i
         ws[f"A{row_num}"] = student["last_name"]
         ws[f"B{row_num}"] = student["first_name"]
         ws[f"C{row_num}"] = repeating_label(student["repeating"])
@@ -318,10 +323,8 @@ def build_notes_sheet(wb, students, exam_result_rows):
         ):
             columns.append((bank_name, exam_id, exam_name, exam_format))
 
-    FIRST_DATA_COL = 4  # column D
-    DATA_START_ROW = 9
     n_students = len(students)
-    data_end_row = DATA_START_ROW + n_students - 1
+    data_end_row = NOTES_DATA_START_ROW + n_students - 1
 
     ws["A8"] = "Nom"
     ws["B8"] = "Prénom"
@@ -350,7 +353,7 @@ def build_notes_sheet(wb, students, exam_result_rows):
         style(ws[f"{col_l}3"], bold=True, wrap=True)
 
         if n_students > 0:
-            rng = f"{col_l}{DATA_START_ROW}:{col_l}{data_end_row}"
+            rng = f"{col_l}{NOTES_DATA_START_ROW}:{col_l}{data_end_row}"
             ws[f"{col_l}4"] = f'=IFERROR(AVERAGE({rng}),"")'
             ws[f"{col_l}5"] = f'=IFERROR(STDEV({rng}),"")'
             ws[f"{col_l}6"] = f'=IF(COUNT({rng})=0,"",MIN({rng}))'
@@ -372,7 +375,7 @@ def build_notes_sheet(wb, students, exam_result_rows):
         col_cursor += n_exams
 
     for i, student in enumerate(students):
-        row_num = DATA_START_ROW + i
+        row_num = NOTES_DATA_START_ROW + i
         ws[f"A{row_num}"] = student["last_name"]
         ws[f"B{row_num}"] = student["first_name"]
         ws[f"C{row_num}"] = repeating_label(student["repeating"])

@@ -19,7 +19,8 @@ Behavior:
           combination
 
 Usage:
-    python -m services.import_classroom_students 2026 input/students_2026.xlsx --branch PC
+    python -m services.import_classroom_students 2026 \
+        input/students_2026.xlsx --branch PC
 """
 
 import argparse
@@ -43,7 +44,8 @@ def load_and_validate(
     """
     if not students_path.exists():
         raise FileNotFoundError(
-            f"Missing input file: {students_path}. Please place the students file there."
+            f"Missing input file: {students_path}. Please place the students file "
+            "there."
         )
 
     wb = openpyxl.load_workbook(students_path, data_only=True)
@@ -84,8 +86,11 @@ def load_and_validate(
 
 
 def import_students(conn, classroom_id: int, rows: list) -> tuple:
-    """Returns (students_created, students_skipped, classroom_students_created,
-    classroom_students_skipped)."""
+    """Import students into a classroom.
+
+    Returns (students_created, students_skipped, classroom_students_created,
+    classroom_students_skipped).
+    """
     students_created = 0
     students_skipped = 0
     classroom_students_created = 0
@@ -134,7 +139,8 @@ def import_classroom_students(year: int, students_path: Path, branch: Branch) ->
             )
             print(f"Students: {created} created, {skipped} already existed (skipped).")
             print(
-                f"Classroom students: {cs_created} created, {cs_skipped} already existed (skipped)."
+                f"Classroom students: {cs_created} created, {cs_skipped} already "
+                "existed (skipped)."
             )
     finally:
         conn.close()

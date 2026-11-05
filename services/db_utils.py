@@ -25,7 +25,10 @@ def get_connection() -> sqlite3.Connection:
 
 
 def normalize_name(name: str) -> str:
-    """Lowercase, strip accents and punctuation, collapse whitespace for loose matching."""
+    """Lowercase, strip accents and punctuation and collapse whitespace.
+
+    Used for loose matching.
+    """
     decomposed = unicodedata.normalize("NFKD", name.strip().lower())
     without_accents = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     cleaned = "".join(
@@ -107,7 +110,7 @@ def _loose_match_get_or_create(
 def eligible_student_counts_by_school(
     conn: sqlite3.Connection, classroom_id: int
 ) -> dict[int, int]:
-    """Number of students eligible to the oraux in the given classroom, grouped by school_id."""
+    """Count students eligible to the oraux in a classroom, by school_id."""
     query = """
         SELECT a.school_id, COUNT(*)
         FROM admissions a
@@ -133,7 +136,8 @@ def get_classroom_id_by_year(
     ).fetchone()
     if not row:
         raise ValueError(
-            f"No classroom found for year {year} and branch {branch}. Run import_classroom_students.py first."
+            f"No classroom found for year {year} and branch {branch}. Run "
+            "import_classroom_students.py first."
         )
     return row["id"]
 
@@ -141,8 +145,11 @@ def get_classroom_id_by_year(
 def get_or_create_classroom(
     conn: sqlite3.Connection, year: int, branch: Branch
 ) -> tuple:
-    """Exact match on (year, branch) — no loose matching, consistent
-    with the unique constraint. Returns (classroom_id, created: bool)."""
+    """Get or create a classroom by exact (year, branch) match.
+
+    No loose matching, consistent with the unique constraint.
+    Returns (classroom_id, created: bool).
+    """
     return _exact_match_get_or_create(
         conn,
         "classrooms",
@@ -156,8 +163,11 @@ def get_or_create_classroom(
 def get_or_create_student(
     conn: sqlite3.Connection, first_name: str, last_name: str
 ) -> tuple:
-    """Exact match on (first_name, last_name) — no loose matching, consistent
-    with the unique constraint. Returns (student_id, created: bool)."""
+    """Get or create a student by exact (first_name, last_name) match.
+
+    No loose matching, consistent with the unique constraint.
+    Returns (student_id, created: bool).
+    """
     return _exact_match_get_or_create(
         conn,
         "students",
@@ -174,21 +184,27 @@ def get_or_create_classroom_student(
     student_id: int,
     repeating: bool = False,
 ) -> tuple:
-    """Exact match on (classroom_id, student_id), matching the unique
-    constraint. Returns (classroom_student_id, created: bool)."""
+    """Get or create a classroom student by exact (classroom_id, student_id).
+
+    Matches the unique constraint. Returns (classroom_student_id, created: bool).
+    """
     return _exact_match_get_or_create(
         conn,
         "classroom_students",
         "WHERE classroom_id = ? AND student_id = ?",
         (classroom_id, student_id),
-        "INSERT INTO classroom_students (classroom_id, student_id, repeating) VALUES (?, ?, ?)",
+        "INSERT INTO classroom_students (classroom_id, student_id, repeating) VALUES "
+        "(?, ?, ?)",
         (classroom_id, student_id, repeating),
     )
 
 
 def find_bank_by_name(conn: sqlite3.Connection, bank_name: str, cache: dict):
-    """Loose match (accent/punctuation/case-insensitive) on bank name.
-    Returns bank_id, or None if no matching bank exists. Does NOT create."""
+    """Find a bank by name.
+
+    Loose match (accent/punctuation/case-insensitive) on bank name.
+    Returns bank_id, or None if no matching bank exists. Does NOT create.
+    """
 
     cache_key = normalize_name(bank_name)
     bank_id, _created = _loose_match_get_or_create(
@@ -199,8 +215,11 @@ def find_bank_by_name(conn: sqlite3.Connection, bank_name: str, cache: dict):
 
 
 def get_or_create_bank(conn: sqlite3.Connection, bank_name: str, cache: dict) -> tuple:
-    """Loose match (accent/punctuation/case-insensitive) on bank name.
-    Returns (bank_id, created: bool)."""
+    """Get or create a bank by name.
+
+    Loose match (accent/punctuation/case-insensitive) on bank name.
+    Returns (bank_id, created: bool).
+    """
     cache_key = normalize_name(bank_name)
 
     return _loose_match_get_or_create(
@@ -215,11 +234,14 @@ def get_or_create_bank(conn: sqlite3.Connection, bank_name: str, cache: dict) ->
 
 
 def find_school_by_name(conn: sqlite3.Connection, school_name: str, cache: dict):
-    """Loose match (accent/punctuation/case-insensitive) on school name,
+    """Find a school by name, across all banks.
+
+    Loose match (accent/punctuation/case-insensitive) on school name,
     searched across ALL schools regardless of bank (used by imports that
     don't have a bank context, e.g. per-school results files). Returns
     school_id, or None if no matching school exists. Does NOT create.
-    School names are globally unique, so there is at most one match."""
+    School names are globally unique, so there is at most one match.
+    """
     cache_key = normalize_name(school_name)
     school_id, _created = _loose_match_get_or_create(
         conn=conn, table="schools", name=school_name, cache=cache, cache_key=cache_key
@@ -231,8 +253,11 @@ def find_school_by_name(conn: sqlite3.Connection, school_name: str, cache: dict)
 def get_or_create_school(
     conn: sqlite3.Connection, school_name: str, bank_id: int, cache: dict
 ) -> tuple:
-    """Loose match (accent/punctuation/case-insensitive) on school name,
-    scoped to bank_id. Returns (school_id, created: bool)."""
+    """Get or create a school by name within a bank.
+
+    Loose match (accent/punctuation/case-insensitive) on school name,
+    scoped to bank_id. Returns (school_id, created: bool).
+    """
     cache_key = (bank_id, normalize_name(school_name))
 
     return _loose_match_get_or_create(
@@ -263,7 +288,8 @@ def upsert_admission_written_result(
     per-school results import, which is the authoritative source for these
     fields (an earlier admissibility import may have already created the
     row with only `written_status` set from a different, earlier-stage value).
-    Returns (admission_id, created: bool)."""
+    Returns (admission_id, created: bool).
+    """
     row = conn.execute(
         "SELECT id FROM admissions WHERE classroom_student_id = ? AND school_id = ?;",
         (classroom_student_id, school_id),
@@ -282,7 +308,10 @@ def upsert_admission_written_result(
 
     cur = conn.execute(
         """
-        INSERT INTO admissions (classroom_student_id, school_id, written_status, written_points, written_average)
+        INSERT INTO admissions (
+            classroom_student_id, school_id, written_status, written_points,
+            written_average
+        )
         VALUES (?, ?, ?, ?, ?);
         """,
         (
@@ -297,8 +326,11 @@ def upsert_admission_written_result(
 
 
 def find_student_by_name(conn: sqlite3.Connection, first_name: str, last_name: str):
-    """Exact match on (first_name, last_name). Returns student_id, or None
-    if no matching student exists. Does NOT create."""
+    """Find a student by exact (first_name, last_name).
+
+    Returns student_id, or None if no matching student exists.
+    Does NOT create.
+    """
 
     student_id, _created = _exact_match_get_or_create(
         conn=conn,
@@ -312,8 +344,11 @@ def find_student_by_name(conn: sqlite3.Connection, first_name: str, last_name: s
 def find_classroom_student(
     conn: sqlite3.Connection, classroom_id: int, student_id: int
 ):
-    """Exact match on (classroom_id, student_id). Returns classroom_student_id,
-    or None if no matching row exists. Does NOT create."""
+    """Find a classroom student by exact (classroom_id, student_id).
+
+    Returns classroom_student_id, or None if no matching row exists.
+    Does NOT create.
+    """
 
     classroom_student_id, _created = _exact_match_get_or_create(
         conn=conn,
@@ -325,9 +360,11 @@ def find_classroom_student(
 
 
 def find_admission(conn: sqlite3.Connection, classroom_student_id: int, school_id: int):
-    """Exact match on (classroom_student_id, school_id). Returns
-    (admission_id, written_points), or None if no matching row exists.
-    Does NOT create."""
+    """Find an admission by exact (classroom_student_id, school_id).
+
+    Returns (admission_id, written_points), or None if no matching row
+    exists. Does NOT create.
+    """
     row = conn.execute(
         """
         SELECT id, written_points FROM admissions
@@ -383,10 +420,12 @@ def get_or_create_admission(
     written_status: str | None = None,
     oral_status: str | None = None,
 ) -> tuple:
-    """Exact match on (classroom_student_id, school_id), matching the unique
-    constraint. Returns (admission_id, created: bool). Creates only the
-    provided status column(s); does not update status if the row already
-    exists."""
+    """Get or create an admission by exact (classroom_student_id, school_id).
+
+    Matches the unique constraint. Returns (admission_id, created: bool).
+    Creates only the provided status column(s); does not update status if the
+    row already exists.
+    """
     fields = {
         "written_status": written_status,
         "oral_status": oral_status,
@@ -405,7 +444,9 @@ def get_or_create_admission(
         table="admissions",
         scope_sql="WHERE classroom_student_id = ? AND school_id = ?",
         scope_params=(classroom_student_id, school_id),
-        insert_sql=f"INSERT INTO admissions ({', '.join(columns)}) VALUES ({placeholders})",
+        insert_sql=(
+            f"INSERT INTO admissions ({', '.join(columns)}) VALUES ({placeholders})"
+        ),
         insert_params=insert_params,
     )
 
@@ -413,8 +454,11 @@ def get_or_create_admission(
 def get_or_create_exam(
     conn: sqlite3.Connection, exam_name: str, bank_id: int, format_: str, cache: dict
 ) -> tuple:
-    """Loose match (accent/punctuation/case-insensitive) on exam name,
-    scoped to (bank_id, format). Returns (exam_id, created: bool)."""
+    """Get or create an exam by name within a bank and format.
+
+    Loose match (accent/punctuation/case-insensitive) on exam name,
+    scoped to (bank_id, format). Returns (exam_id, created: bool).
+    """
     cache_key = (bank_id, format_, normalize_name(exam_name))
 
     return _loose_match_get_or_create(
@@ -433,15 +477,20 @@ def get_or_create_exam(
 def get_or_create_exam_result(
     conn: sqlite3.Connection, classroom_student_id: int, exam_id: int, points
 ) -> tuple:
-    """Exact match on (classroom_student_id, exam_id), matching the unique
-    constraint. Returns (exam_result_id, created: bool). Does not update
-    points if it already exists."""
+    """Get or create an exam result by exact (classroom_student_id, exam_id).
+
+    Matches the unique constraint. Returns (exam_result_id, created: bool).
+    Does not update points if it already exists.
+    """
 
     return _exact_match_get_or_create(
         conn=conn,
         table="exam_results",
         scope_sql="WHERE classroom_student_id = ? AND exam_id = ?",
         scope_params=(classroom_student_id, exam_id),
-        insert_sql="INSERT INTO exam_results (classroom_student_id, exam_id, points) VALUES (?, ?, ?)",
+        insert_sql=(
+            "INSERT INTO exam_results (classroom_student_id, exam_id, points) "
+            "VALUES (?, ?, ?)"
+        ),
         insert_params=(classroom_student_id, exam_id, points),
     )

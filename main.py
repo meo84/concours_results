@@ -1,3 +1,5 @@
+"""Run the whole import and summary pipeline."""
+
 import argparse
 import sys
 from pathlib import Path

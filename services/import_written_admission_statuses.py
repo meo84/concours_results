@@ -1,6 +1,6 @@
-"""
-Import written admission statuses from ./input/ecrits/statuts_par_concours/
-into concours_results.db.
+"""Import written admission statuses into concours_results.db.
+
+Reads ./input/ecrits/statuts_par_concours/.
 
 Expected folder content:
     - At least one .xlsx file.
@@ -152,7 +152,8 @@ def import_written_admission_statuses(year: int, branch: Branch) -> None:
                     if created:
                         schools_created += 1
                         print(
-                            f"  Created school: {school_name!r} (id={school_id}, bank_id={bank_id})"
+                            f"  Created school: {school_name!r} (id={school_id}, "
+                            f"bank_id={bank_id})"
                         )
                     else:
                         schools_skipped += 1
@@ -200,7 +201,8 @@ def import_written_admission_statuses(year: int, branch: Branch) -> None:
         f"Banks created: {banks_created}.\n"
         f"Schools created: {schools_created}, skipped: {schools_skipped}.\n"
         f"Students created: {students_created}, skipped: {students_skipped}.\n"
-        f"Classroom students created: {classroom_students_created}, skipped: {classroom_students_skipped}.\n"
+        f"Classroom students created: {classroom_students_created}, skipped: "
+        f"{classroom_students_skipped}.\n"
         f"Admissions created: {admissions_created}, skipped: {admissions_skipped}.\n"
     )
 

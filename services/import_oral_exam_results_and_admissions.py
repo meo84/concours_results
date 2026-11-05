@@ -1,13 +1,14 @@
-"""
-Import oral exam results and update admissions from
-./input/oraux/admissions_par_ecole/ into concours_results.db.
+"""Import oral exam results and update admissions in concours_results.db.
+
+Reads ./input/oraux/admissions_par_ecole/.
 
 Expected folder content:
     - At least one .xlsx file.
     - Empty files are skipped silently (no error) — a file with no rows,
       or only a header row and no data rows, counts as empty.
     - For non-empty files, the filename follows the pattern:
-        Resultats de l_admission pour le {school_name} de {branch}{optional more characters}.xlsx
+        Resultats de l_admission pour le {school_name} de
+        {branch}{optional more characters}.xlsx
       e.g. "Resultats de l_admission pour le Concours Mines-Télécom
       fonctionnaire PC de PC.xlsx"
       -> school_name = "Mines-Télécom fonctionnaire PC"
@@ -95,8 +96,11 @@ FORMAT = "oral"
 
 
 def _is_effectively_empty(all_rows) -> bool:
-    """True if the file has no rows, only a header row (no data rows), or
-    has rows/columns present but every cell (including headers) is blank."""
+    """Return True if the file has no usable content.
+
+    That is: no rows, only a header row (no data rows), or rows/columns
+    present but every cell (including headers) blank.
+    """
     if len(all_rows) <= 1:
         return True  # no rows, or header row only
     all_cells = [v for row in all_rows for v in row]
@@ -123,7 +127,8 @@ def validate_and_read_file(path: Path):
 
     if len(normalized_headers) < N_VALIDATED_COLUMNS:
         errors.append(
-            f"{path.name}: expected at least {N_VALIDATED_COLUMNS} columns starting with "
+            f"{path.name}: expected at least {N_VALIDATED_COLUMNS} columns starting "
+            "with "
             f"{EXPECTED_HEADERS}, found {normalized_headers}."
         )
         return None, None, errors, False
@@ -132,7 +137,8 @@ def validate_and_read_file(path: Path):
     for expected, actual in zip(EXPECTED_HEADERS, actual_headers):
         if db_utils.normalize_name(actual or "") != db_utils.normalize_name(expected):
             errors.append(
-                f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
+                f"{path.name}: expected header {expected!r} (loose match), found "
+                f"{actual!r}."
             )
     if errors:
         return None, None, errors, False
@@ -229,7 +235,8 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                 )
                 if school_id is None:
                     school_not_found_warnings.append(
-                        f"{path.name}: no school found matching {school_name!r}. File skipped."
+                        f"{path.name}: no school found matching {school_name!r}. File "
+                        "skipped."
                     )
                     continue
 
@@ -237,7 +244,9 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
 
                 # Resolve classroom_student_id per row; rows that fail are excluded
                 # from both the admissions update and the exam results creation.
-                resolved_rows = []  # list of (row_idx, classroom_student_id, oral_status, rank, total, average, total_oral, extra_values)
+                # list of (row_idx, classroom_student_id, oral_status, rank, total,
+                # average, total_oral, extra_values)
+                resolved_rows = []
                 for (
                     row_idx,
                     last_name,
@@ -264,8 +273,10 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                     )
                     if classroom_student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no classroom_student found for "
-                            f"{first_name!r} {last_name!r} in classroom {classroom_id}. Row skipped."
+                            f"{path.name} row {row_idx}: no classroom_student found "
+                            "for "
+                            f"{first_name!r} {last_name!r} in classroom "
+                            f"{classroom_id}. Row skipped."
                         )
                         continue
 
@@ -287,7 +298,8 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                     )
                     if admission is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no admissions record found for "
+                            f"{path.name} row {row_idx}: no admissions record found "
+                            "for "
                             f"{first_name!r} {last_name!r} at school_id={school_id}. "
                             f"Admissions update skipped for this row."
                         )
@@ -324,7 +336,8 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
                     if created:
                         exams_created += 1
                         print(
-                            f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id}, format={FORMAT})"
+                            f"Created exam: {exam_name!r} (id={exam_id}, "
+                            f"bank_id={bank_id}, format={FORMAT})"
                         )
                     else:
                         exams_skipped += 1
@@ -350,7 +363,8 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
         conn.close()
 
     print(
-        f"\nDone. {len(parsed)} file(s) processed, {skipped_empty} empty file(s) skipped.\n"
+        f"\nDone. {len(parsed)} file(s) processed, {skipped_empty} empty file(s) "
+        "skipped.\n"
         f"Admissions updated: {admissions_updated}.\n"
         f"Exams created: {exams_created}, skipped: {exams_skipped}.\n"
         f"Exam results created: {results_created}, skipped: {results_skipped}."

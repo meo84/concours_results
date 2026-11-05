@@ -1,6 +1,6 @@
-"""
-Import oral admission statuses from ./input/oraux/statuts_par_concours/
-into concours_results.db.
+"""Import oral admission statuses into concours_results.db.
+
+Reads ./input/oraux/statuts_par_concours/.
 
 Expected folder content:
     - At least one .xlsx file.
@@ -141,7 +141,8 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                 bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
                 if bank_id is None:
                     bank_not_found_warnings.append(
-                        f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                        f"{path.name}: no bank found matching {bank_name!r}. File "
+                        "skipped."
                     )
                     continue
 
@@ -152,7 +153,8 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                     )
                     if school_id is None:
                         school_not_found_warnings.append(
-                            f"{path.name}: no school found matching {school_name!r}. File skipped."
+                            f"{path.name}: no school found matching {school_name!r}. "
+                            "File skipped."
                         )
                         continue
 
@@ -174,8 +176,10 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                     )
                     if classroom_student_id is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no classroom_student found for "
-                            f"{first_name!r} {last_name!r} in classroom {classroom_id}. Row skipped."
+                            f"{path.name} row {row_idx}: no classroom_student found "
+                            "for "
+                            f"{first_name!r} {last_name!r} in classroom "
+                            f"{classroom_id}. Row skipped."
                         )
                         continue
 
@@ -188,8 +192,10 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
                         )
                         if admission is None:
                             row_errors.append(
-                                f"{path.name} row {row_idx}: no admissions record found for "
-                                f"{first_name!r} {last_name!r} at school_id={school_id}. "
+                                f"{path.name} row {row_idx}: no admissions record "
+                                "found for "
+                                f"{first_name!r} {last_name!r} at "
+                                f"school_id={school_id}. "
                                 f"Admissions update skipped for this row."
                             )
                             continue

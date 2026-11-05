@@ -1,11 +1,12 @@
-"""
-Import exams and exam results from ./input/ecrits/notes_par_concours/ into
-concours_results.db.
+"""Import exams and exam results into concours_results.db.
+
+Reads ./input/ecrits/notes_par_concours/.
 
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Résultats de la classe {branch}-{branch} pour la Banque {bank_name} {branch}{optional more characters}.xlsx
+        Résultats de la classe {branch}-{branch} pour la Banque {bank_name}
+        {branch}{optional more characters}.xlsx
       e.g. "Résultats de la classe PC-PC pour la Banque Mines Ponts PC(1).xlsx"
       -> bank_name = "Mines Ponts"
     - In each file, the first 3 column headers must be: Numéro, Nom, Prénom
@@ -143,7 +144,8 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
                 bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
                 if bank_id is None:
                     bank_not_found_warnings.append(
-                        f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                        f"{path.name}: no bank found matching {bank_name!r}. File "
+                        "skipped."
                     )
                     continue
 
@@ -156,7 +158,8 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
                     if created:
                         exams_created += 1
                         print(
-                            f"Created exam: {exam_name!r} (id={exam_id}, bank_id={bank_id})"
+                            f"Created exam: {exam_name!r} (id={exam_id}, "
+                            f"bank_id={bank_id})"
                         )
                     else:
                         exams_skipped += 1
@@ -198,7 +201,8 @@ def import_written_exam_results(year: int, branch: Branch) -> None:
         f"\nDone. {len(parsed)} file(s) processed.\n"
         f"Exams created: {exams_created}, skipped: {exams_skipped}.\n"
         f"Students created: {students_created}, skipped: {students_skipped}.\n"
-        f"Classroom students created: {classroom_students_created}, skipped: {classroom_students_skipped}.\n"
+        f"Classroom students created: {classroom_students_created}, skipped: "
+        f"{classroom_students_skipped}.\n"
         f"Exam results created: {results_created}, skipped: {results_skipped}."
     )
 

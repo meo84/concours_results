@@ -1,3 +1,5 @@
+"""Helpers for locating, validating and reading input Excel files."""
+
 import re
 import unicodedata
 from pathlib import Path
@@ -18,9 +20,10 @@ STUDENT_FILE_RE = re.compile(r"^students_(\d{4})\.xlsx$")
 
 
 def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
-    """
-    Look for files named 'students_{year}.xlsx' in the inputs directory.
-    Returns (year, path). Prompts the user if more than one is found.
+    """Validate the students workbook and return (year, path).
+
+    Looks for files named 'students_{year}.xlsx' in the inputs directory.
+    Prompts the user if more than one is found.
     """
     matches = {}
     for f in sorted(INPUT_PATH.glob("students_*.xlsx")):
@@ -69,7 +72,8 @@ def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
 def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(
-            f"Missing input folder: {folder}. Please create it and add the results files."
+            f"Missing input folder: {folder}. Please create it and add the results "
+            "files."
         )
     expected_filename = filename_patterns(branch)[folder]
     filename_pattern = expected_filename["pattern"]
@@ -140,11 +144,15 @@ def filename_patterns(branch: Branch):
     return {
         WRITTEN_STATUSES_PER_BANK_PATH: {
             "pattern": re.compile(
-                rf"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+banque\s+"
+                rf"^Statuts\s+pour\s+l_admissibilité\s+de\s+la\s+classe\s+{b}-{b}"
+                rf"\s+pour\s+la\s+banque\s+"
                 rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
             "group_name": "bank_name",
-            "example": f"Status pour l_admissibilité de la classe {b}-{b} pour la banque Banque {{bank_name}} {b}...xlsx",
+            "example": (
+                f"Status pour l_admissibilité de la classe {b}-{b} "
+                f"pour la banque Banque {{bank_name}} {b}...xlsx"
+            ),
         },
         WRITTEN_EXAM_RESULTS_PATH: {
             "pattern": re.compile(
@@ -152,22 +160,32 @@ def filename_patterns(branch: Branch):
                 rf"(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
             "group_name": "bank_name",
-            "example": f"Résultats de la classe {b}-{b} pour la Banque {{bank_name}} {b}...xlsx",
+            "example": (
+                f"Résultats de la classe {b}-{b} "
+                f"pour la Banque {{bank_name}} {b}...xlsx"
+            ),
         },
         WRITTEN_ADMISSIONS_PER_SCHOOL_PATH: {
             "pattern": re.compile(
-                rf"^R[eé]sultats\s+de\s+l_admissibilit[eé]\s+pour\s+le\s+(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
+                rf"^R[eé]sultats\s+de\s+l_admissibilit[eé]\s+pour\s+le\s+"
+                rf"(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
             "group_name": "school_name",
-            "example": f"Résultats de l_admissibilité pour le {{school_name}} de {b}...xlsx",
+            "example": (
+                f"Résultats de l_admissibilité pour le {{school_name}} de {b}...xlsx"
+            ),
         },
         ORAL_STATUSES_PER_BANK_PATH: {
             "pattern": re.compile(
-                rf"^Statuts\s+pour\s+l_admission\s+de\s+la\s+classe\s+{b}-{b}\s+pour\s+la\s+banque\s+"
+                rf"^Statuts\s+pour\s+l_admission\s+de\s+la\s+classe\s+{b}-{b}"
+                rf"\s+pour\s+la\s+banque\s+"
                 rf"Banque\s+(?P<bank_name>.+)\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
             "group_name": "bank_name",
-            "example": f"Status pour l_admission de la classe {b}-{b} pour la banque Banque {{bank_name}} {b}...xlsx",
+            "example": (
+                f"Status pour l_admission de la classe {b}-{b} "
+                f"pour la banque Banque {{bank_name}} {b}...xlsx"
+            ),
         },
         ORAL_ADMISSIONS_PER_SCHOOL_PATH: {
             "pattern": re.compile(
@@ -175,6 +193,8 @@ def filename_patterns(branch: Branch):
                 rf"(?P<school_name>.+)\s+de\s+{b}(?P<suffix>.*)\.xlsx$"
             ),
             "group_name": "school_name",
-            "example": f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx",
+            "example": (
+                f"Résultats de l_admission pour le {{school_name}} de {b}...xlsx"
+            ),
         },
     }

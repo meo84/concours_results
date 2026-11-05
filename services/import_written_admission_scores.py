@@ -1,11 +1,12 @@
-"""
-Import per-school admission results from ./input/ecrits/notes_par_ecole/
-into concours_results.db.
+"""Import per-school admission results into concours_results.db.
+
+Reads ./input/ecrits/notes_par_ecole/.
 
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Résultats de l_admissibilité pour le {school_name} de {branch}{optional more characters}.xlsx
+        Résultats de l_admissibilité pour le {school_name} de
+        {branch}{optional more characters}.xlsx
       e.g. "Resultats de l_admissibilité pour le Arts et Métiers de PC (2).xlsx"
       -> school_name = "Arts et Métiers"
       (the accent on the first word is tolerated either way: "Résultats" or
@@ -77,14 +78,16 @@ def validate_and_read_file(path: Path):
     if len(normalized_headers) < expected_count:
         errors.append(
             f"{path.name}: expected at least {expected_count} columns starting with "
-            f"{EXPECTED_STRICT_HEADERS + EXPECTED_LOOSE_HEADERS}, found {normalized_headers}."
+            f"{EXPECTED_STRICT_HEADERS + EXPECTED_LOOSE_HEADERS}, found "
+            f"{normalized_headers}."
         )
         return None, errors
 
     strict_actual = normalized_headers[: len(EXPECTED_STRICT_HEADERS)]
     if strict_actual != EXPECTED_STRICT_HEADERS:
         errors.append(
-            f"{path.name}: expected first headers {EXPECTED_STRICT_HEADERS}, found {strict_actual}."
+            f"{path.name}: expected first headers {EXPECTED_STRICT_HEADERS}, found "
+            f"{strict_actual}."
         )
         return None, errors
 
@@ -94,7 +97,8 @@ def validate_and_read_file(path: Path):
     for expected, actual in zip(EXPECTED_LOOSE_HEADERS, loose_actual):
         if db_utils.normalize_name(actual or "") != db_utils.normalize_name(expected):
             errors.append(
-                f"{path.name}: expected header {expected!r} (loose match), found {actual!r}."
+                f"{path.name}: expected header {expected!r} (loose match), found "
+                f"{actual!r}."
             )
     if errors:
         return None, errors
@@ -171,7 +175,8 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
                 )
                 if school_id is None:
                     school_not_found_warnings.append(
-                        f"{path.name}: no school found matching {school_name!r}. File skipped."
+                        f"{path.name}: no school found matching {school_name!r}. File "
+                        "skipped."
                     )
                     continue
 
@@ -233,7 +238,8 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
     print(
         f"\nDone. {len(parsed)} file(s) processed.\n"
         f"Students created: {students_created}, skipped: {students_skipped}.\n"
-        f"Classroom students created: {classroom_students_created}, skipped: {classroom_students_skipped}.\n"
+        f"Classroom students created: {classroom_students_created}, skipped: "
+        f"{classroom_students_skipped}.\n"
         f"Admissions created: {admissions_created}, updated: {admissions_updated}.\n"
         f"Rows skipped (no data): {rows_skipped_blank}."
     )
