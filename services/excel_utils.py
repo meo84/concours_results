@@ -66,7 +66,7 @@ def validate_students_input(branches: list[Branch]) -> tuple[int, Path]:
     return year, students_path
 
 
-def filter_files(folder: Path, branch: Branch = Branch.PC) -> list[tuple[Path, str]]:
+def filter_files(folder: Path, branch: Branch) -> list[tuple[Path, str]]:
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(
             f"Missing input folder: {folder}. Please create it and add the results files."

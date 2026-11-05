@@ -210,7 +210,7 @@ def import_oral_exam_results_and_admissions(year: int, branch: Branch) -> None:
 
     try:
         with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
             print(f"Using classroom for year {year} (id={classroom_id})")
 
             school_cache = {}

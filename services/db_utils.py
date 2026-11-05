@@ -121,12 +121,12 @@ def eligible_student_counts_by_school(
 
 
 def get_classroom_id_by_year(
-    conn: sqlite3.Connection, year: int, branch: str = Branch.PC
+    conn: sqlite3.Connection, year: int, branch: Branch
 ) -> int:
-    """Look up an existing classroom by year. Does NOT create one.
+    """Look up an existing classroom by year and branch. Does NOT create one.
 
     Classrooms are created by import_classroom_students.py; this raises a
-    clear error if that step hasn't been run yet for this year.
+    clear error if that step hasn't been run yet for this year and branch.
     """
     row = conn.execute(
         "SELECT id FROM classrooms WHERE year = ? AND branch = ?;", (year, branch)
@@ -138,14 +138,16 @@ def get_classroom_id_by_year(
     return row["id"]
 
 
-def get_or_create_classroom(conn: sqlite3.Connection, year: int, branch: str) -> tuple:
-    """Exact match on year — no loose matching, consistent
+def get_or_create_classroom(
+    conn: sqlite3.Connection, year: int, branch: Branch
+) -> tuple:
+    """Exact match on (year, branch) — no loose matching, consistent
     with the unique constraint. Returns (classroom_id, created: bool)."""
     return _exact_match_get_or_create(
         conn,
         "classrooms",
-        "WHERE year = ?",
-        (year,),
+        "WHERE year = ? AND branch = ?",
+        (year, branch),
         "INSERT INTO classrooms (year, branch) VALUES (?, ?)",
         (year, branch),
     )

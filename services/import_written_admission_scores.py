@@ -152,7 +152,7 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
 
     try:
         with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
+            classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
             print(f"Using classroom for year {year} (id={classroom_id})")
 
             school_cache = {}
@@ -247,6 +247,16 @@ def import_written_admission_scores(year: int, branch: Branch) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("year", type=int)
+    parser.add_argument(
+        "--branch",
+        type=Branch,
+        choices=list(Branch),
+    )
 
     args = parser.parse_args()
-    import_written_admission_scores(args.year)
+    branch = args.branch
+    if branch:
+        import_written_admission_scores(args.year, branch)
+    else:
+        for branch in Branch:
+            import_written_admission_scores(args.year, branch)
