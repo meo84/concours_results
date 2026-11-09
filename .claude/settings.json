@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"ruff|python$\")",
+      "Bash(.venv/bin/python --version)",
+      "Bash(.venv/bin/ruff --version)"
+    ]
+  }
+}

@@ -2,7 +2,7 @@
 Import students from xlsx input into concours_results.db.
 
 Expected file format:
-    - Exactly one sheet
+    - One sheet per branch, named after the branch (e.g. "PC")
     - Exactly 3 columns with headers: Nom, Prénom, Redoublant
     - One row per student. Redoublant == "R" means repeating, anything else
       (including blank) means not repeating.
@@ -11,7 +11,7 @@ Behavior:
     - Missing file -> raise FileNotFoundError naming the expected path.
     - Invalid format -> raise ValueError listing every format issue found.
     - Valid file ->
-        - create a classroom for the given year (branch "PC") if none exists yet
+        - create a classroom for the given year and branch if none exists yet
         - create a student per row (first_name, last_name) if one doesn't
           already exist for that (first_name, last_name) combination
         - create a classroom_student (classroom_id, repeating, student_id)
@@ -19,7 +19,8 @@ Behavior:
           combination
 
 Usage:
-    python -m services.import_classroom_students 2026 input/students_2026.xlsx --branch PC
+    python -m services.import_classroom_students 2026 \
+        input/students_2026.xlsx --branch PC
 """
 
 import argparse
@@ -28,7 +29,7 @@ from pathlib import Path
 import openpyxl
 
 from models.classroom import Branch
-from services import db_utils
+from services import db_utils, excel_utils
 
 EXPECTED_HEADERS = ["Nom", "Prénom", "Redoublant"]
 
@@ -43,7 +44,8 @@ def load_and_validate(
     """
     if not students_path.exists():
         raise FileNotFoundError(
-            f"Missing input file: {students_path}. Please place the students file there."
+            f"Missing input file: {students_path}. Please place the students file "
+            "there."
         )
 
     wb = openpyxl.load_workbook(students_path, data_only=True)
@@ -62,8 +64,7 @@ def load_and_validate(
         if normalized != EXPECTED_HEADERS:
             errors.append(f"Expected headers {EXPECTED_HEADERS}, found {normalized}.")
 
-    if errors:
-        raise ValueError("Invalid input file format:\n- " + "\n- ".join(errors))
+    excel_utils.raise_if_errors(errors, "Invalid input file format")
 
     rows = []
     for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
@@ -84,8 +85,11 @@ def load_and_validate(
 
 
 def import_students(conn, classroom_id: int, rows: list) -> tuple:
-    """Returns (students_created, students_skipped, classroom_students_created,
-    classroom_students_skipped)."""
+    """Import students into a classroom.
+
+    Returns (students_created, students_skipped, classroom_students_created,
+    classroom_students_skipped).
+    """
     students_created = 0
     students_skipped = 0
     classroom_students_created = 0
@@ -120,24 +124,18 @@ def import_classroom_students(year: int, students_path: Path, branch: Branch) ->
     rows = load_and_validate(year, students_path, branch)
     print(f"Validated {students_path}: year={year}, {len(rows)} student row(s).")
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id, _created = db_utils.get_or_create_classroom(conn, year, branch)
+        print(f"Classroom for year {year} ({branch}): id={classroom_id}")
 
-    try:
-        with conn:
-            classroom_id, _created = db_utils.get_or_create_classroom(
-                conn, year, branch
-            )
-            print(f"Classroom for year {year} ({branch}): id={classroom_id}")
-
-            created, skipped, cs_created, cs_skipped = import_students(
-                conn, classroom_id, rows
-            )
-            print(f"Students: {created} created, {skipped} already existed (skipped).")
-            print(
-                f"Classroom students: {cs_created} created, {cs_skipped} already existed (skipped)."
-            )
-    finally:
-        conn.close()
+        created, skipped, cs_created, cs_skipped = import_students(
+            conn, classroom_id, rows
+        )
+        print(f"Students: {created} created, {skipped} already existed (skipped).")
+        print(
+            f"Classroom students: {cs_created} created, {cs_skipped} already "
+            "existed (skipped)."
+        )
 
 
 if __name__ == "__main__":
@@ -148,7 +146,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

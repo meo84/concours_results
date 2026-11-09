@@ -1,20 +1,19 @@
-"""
-Import oral admission statuses from ./input/oraux/statuts_par_concours/
-into concours_results.db.
+"""Import oral admission statuses into concours_results.db.
+
+Reads ./input/oraux/statuts_par_concours/.
 
 Expected folder content:
     - At least one .xlsx file.
     - Each filename follows the pattern:
-        Statuts pour l_admission de la classe PC-PC pour la banque
-        Banque {bank_name} PC{optional more characters}.xlsx
+        Statuts pour l_admission de la classe {branch}-{branch} pour la banque
+        Banque {bank_name} {branch}{optional more characters}.xlsx
       e.g. "Statuts pour l_admission de la classe PC-PC pour la banque
       Banque CCINP _ Banque e3a - Polytech et Groupe INSA PC(2).xlsx"
       -> bank_name = "CCINP _ Banque e3a - Polytech et Groupe INSA"
     - In each file, the first 3 column headers must be: Numéro, Nom, Prénom
     - Every column header after Prénom is a school name.
-      column.
 
-Requires ./input/students.xlsx to have already been imported (via
+Requires ./input/students_{year}.xlsx to have already been imported (via
 import_classroom_students.py)
 
 Behavior:
@@ -48,39 +47,52 @@ Usage:
 
 import argparse
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from config import ORAL_STATUSES_PER_BANK_PATH
+from models.admission import Status
 from models.classroom import Branch
 from services import db_utils, excel_utils
 
 EXPECTED_FIRST_HEADERS = ["Numéro", "Nom", "Prénom"]
 
 
-def validate_and_read_file(path: Path):
-    """Return (school_names, data_rows, errors).
+@dataclass(frozen=True)
+class OralStatusRow:
+    """A student row: one oral status cell per school column (None if blank)."""
 
-    data_rows is a list of (row_idx, last_name, first_name, oral_status) where
-    oral_status is a list aligned with school_names (None for a blank cell).
-    On any format error, returns (bank_name_or_None, None, None, errors).
+    row_idx: int
+    last_name: str
+    first_name: str
+    statuses: list
+
+
+def validate_and_read_file(path: Path) -> excel_utils.ParsedFile:
+    """Return a ParsedFile with school names as headers.
+
+    rows is a list of OralStatusRow whose statuses are aligned with the
+    school names (None for a blank cell). On any format error, rows is None.
     """
     all_rows = excel_utils.read_xlsx_rows(path)
 
     empty_file_error = excel_utils.validate_non_empty_file(all_rows, path.name)
     if empty_file_error:
-        return None, None, [empty_file_error]
+        return excel_utils.ParsedFile(errors=[empty_file_error])
 
     normalized_headers = excel_utils.normalize_header_row(all_rows[0])
 
     if len(normalized_headers) < 3 or normalized_headers[:3] != EXPECTED_FIRST_HEADERS:
-        error = f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
-        f"found {normalized_headers[:3]}."
-        return None, None, [error]
+        error = (
+            f"{path.name}: expected first 3 headers {EXPECTED_FIRST_HEADERS}, "
+            f"found {normalized_headers[:3]}."
+        )
+        return excel_utils.ParsedFile(errors=[error])
 
     school_names = [h for h in normalized_headers[3:] if h]
     if not school_names:
         error = f"{path.name}: no school columns found after 'Prénom'."
-        return None, None, [error]
+        return excel_utils.ParsedFile(errors=[error])
 
     errors = []
     n_schools = len(school_names)
@@ -100,13 +112,15 @@ def validate_and_read_file(path: Path):
             0, n_schools - len(row[3:])
         )
         data_rows.append(
-            (row_idx, str(last_name).strip(), str(first_name).strip(), oral_status)
+            OralStatusRow(
+                row_idx, str(last_name).strip(), str(first_name).strip(), oral_status
+            )
         )
 
     if errors:
-        return None, errors
+        return excel_utils.ParsedFile(headers=school_names, errors=errors)
 
-    return school_names, data_rows, errors
+    return excel_utils.ParsedFile(headers=school_names, rows=data_rows)
 
 
 def import_oral_admission_statuses(year: int, branch: Branch) -> None:
@@ -115,95 +129,93 @@ def import_oral_admission_statuses(year: int, branch: Branch) -> None:
     all_errors = []
     parsed = []  # list of (path, bank_name, school_names, data_rows)
     for path, bank_name in files:
-        school_names, data_rows, errors = validate_and_read_file(path)
-        if errors:
-            all_errors.extend(errors)
+        result = validate_and_read_file(path)
+        if result.errors:
+            all_errors.extend(result.errors)
         else:
-            parsed.append((path, bank_name, school_names, data_rows))
+            parsed.append((path, bank_name, result.headers, result.rows))
 
-    if all_errors:
-        raise ValueError("Invalid input format:\n- " + "\n- ".join(all_errors))
+    excel_utils.raise_if_errors(all_errors)
 
-    conn = db_utils.get_connection()
+    with db_utils.transaction() as conn:
+        classroom_id = db_utils.get_classroom_id_by_year(conn, year, branch)
+        print(f"Using classroom for year {year} (id={classroom_id})")
 
-    try:
-        with conn:
-            classroom_id = db_utils.get_classroom_id_by_year(conn, year)
-            print(f"Using classroom for year {year} (id={classroom_id})")
+        bank_cache = {}
+        school_cache = {}
+        school_not_found_warnings = []
+        bank_not_found_warnings = []
+        row_errors = []
+        admissions_updated = 0
 
-            bank_cache = {}
-            school_cache = {}
-            school_not_found_warnings = []
-            bank_not_found_warnings = []
-            row_errors = []
-            admissions_updated = 0
+        for path, bank_name, school_names, data_rows in parsed:
+            bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
+            if bank_id is None:
+                bank_not_found_warnings.append(
+                    f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+                )
+                continue
 
-            for path, bank_name, school_names, data_rows in parsed:
-                bank_id = db_utils.find_bank_by_name(conn, bank_name, bank_cache)
-                if bank_id is None:
-                    bank_not_found_warnings.append(
-                        f"{path.name}: no bank found matching {bank_name!r}. File skipped."
+            school_ids = []
+            for school_name in school_names:
+                school_id = db_utils.find_school_by_name(
+                    conn, school_name, school_cache
+                )
+                if school_id is None:
+                    school_not_found_warnings.append(
+                        f"{path.name}: no school found matching {school_name!r}. "
+                        "File skipped."
                     )
                     continue
 
-                school_ids = []
-                for school_name in school_names:
-                    school_id = db_utils.find_school_by_name(
-                        conn, school_name, school_cache
-                    )
-                    if school_id is None:
-                        school_not_found_warnings.append(
-                            f"{path.name}: no school found matching {school_name!r}. File skipped."
-                        )
-                        continue
+                school_ids.append(school_id)
 
-                    school_ids.append(school_id)
-
-                for row_idx, last_name, first_name, oral_statuses_row in data_rows:
-                    student_id = db_utils.find_student_by_name(
-                        conn, first_name, last_name
+            for row in data_rows:
+                student_id = db_utils.find_student_by_name(
+                    conn, row.first_name, row.last_name
+                )
+                if student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no student found for "
+                        f"{row.first_name!r} {row.last_name!r}. Row skipped."
                     )
-                    if student_id is None:
+                    continue
+
+                classroom_student_id = db_utils.find_classroom_student(
+                    conn, classroom_id, student_id
+                )
+                if classroom_student_id is None:
+                    row_errors.append(
+                        f"{path.name} row {row.row_idx}: no classroom_student "
+                        "found for "
+                        f"{row.first_name!r} {row.last_name!r} in classroom "
+                        f"{classroom_id}. Row skipped."
+                    )
+                    continue
+
+                for school_id, oral_status in zip(school_ids, row.statuses):
+                    if oral_status is None:
+                        continue  # no oral_status for this student/school
+
+                    admission = db_utils.find_admission(
+                        conn, classroom_student_id, school_id
+                    )
+                    if admission is None:
                         row_errors.append(
-                            f"{path.name} row {row_idx}: no student found for "
-                            f"{first_name!r} {last_name!r}. Row skipped."
+                            f"{path.name} row {row.row_idx}: no admissions record "
+                            "found for "
+                            f"{row.first_name!r} {row.last_name!r} at "
+                            f"school_id={school_id}. "
+                            f"Admissions update skipped for this row."
                         )
                         continue
 
-                    classroom_student_id = db_utils.find_classroom_student(
-                        conn, classroom_id, student_id
+                    admission_id, _ = admission
+                    oral_status, rank = parse_admission_status(oral_status)
+                    db_utils.update_admission(
+                        conn, admission_id, oral_status=oral_status, rank=rank
                     )
-                    if classroom_student_id is None:
-                        row_errors.append(
-                            f"{path.name} row {row_idx}: no classroom_student found for "
-                            f"{first_name!r} {last_name!r} in classroom {classroom_id}. Row skipped."
-                        )
-                        continue
-
-                    for school_id, oral_status in zip(school_ids, oral_statuses_row):
-                        if oral_status is None:
-                            continue  # no oral_status for this student/school
-
-                        admission = db_utils.find_admission(
-                            conn, classroom_student_id, school_id
-                        )
-                        if admission is None:
-                            row_errors.append(
-                                f"{path.name} row {row_idx}: no admissions record found for "
-                                f"{first_name!r} {last_name!r} at school_id={school_id}. "
-                                f"Admissions update skipped for this row."
-                            )
-                            continue
-
-                        admission_id, _ = admission
-                        oral_status, rank = parse_admission_status(oral_status)
-                        db_utils.update_admission(
-                            conn, admission_id, oral_status=oral_status, rank=rank
-                        )
-                        admissions_updated += 1
-
-    finally:
-        conn.close()
+                    admissions_updated += 1
 
     print(
         f"\nDone. {len(parsed)} file(s) processed\n"
@@ -215,7 +227,7 @@ def parse_admission_status(status):
     normalized = db_utils.normalize_name(status)
     match = re.match(r"^classe e (\d+)$", normalized)
     if match:
-        return "classé-e", int(match.group(1))
+        return Status.CLASSE, int(match.group(1))
     return status, None
 
 
@@ -226,7 +238,6 @@ if __name__ == "__main__":
         "--branch",
         type=Branch,
         choices=list(Branch),
-        metavar="{pc}",
     )
 
     args = parser.parse_args()

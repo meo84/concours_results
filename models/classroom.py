@@ -1,3 +1,5 @@
+"""Classroom domain types."""
+
 from enum import StrEnum
 
 

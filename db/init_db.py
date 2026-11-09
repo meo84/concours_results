@@ -10,12 +10,11 @@ updated_at is kept current via an AFTER UPDATE trigger per table rather
 than a column default (a default only fires on INSERT).
 
 Usage:
-    python -m db.init_db.py
+    python -m db.init_db
 """
 
-import sqlite3
-
 from config import DB_PATH
+from services import db_utils
 
 TABLES = [
     "banks",
@@ -134,14 +133,13 @@ END;
 
 
 def init_db() -> None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
+    conn = db_utils.get_connection(create=True)
     try:
-        with conn:
-            conn.executescript(SCHEMA)
-            for table in TABLES:
-                conn.executescript(TRIGGER_TEMPLATE.format(table=table))
+        # executescript commits the pending transaction before it runs, so
+        # wrapping it in `with conn:` would not make the setup atomic.
+        conn.executescript(SCHEMA)
+        for table in TABLES:
+            conn.executescript(TRIGGER_TEMPLATE.format(table=table))
     finally:
         conn.close()
     print(f"Database ready at {DB_PATH}")
